@@ -1,12 +1,39 @@
 import type { DatabaseSync } from "node:sqlite";
 import { _001Initial } from "./001_initial.js";
+import type { Migration } from "./types.js";
 
-const migrations = [_001Initial];
+const migrations: Migration[] = [_001Initial];
 
 export function migrateAll(db: DatabaseSync): void {
+  createMigrationsTable(db);
   console.log("Running migrations...");
-  for (const [i, upMigration] of migrations.entries()) {
-    console.log(`Running migration #${i + 1}: ${upMigration.name}`);
-    upMigration(db);
+  for (const [i, migration] of migrations.entries()) {
+    const isMigrated = !!db
+      .prepare("select 1 from __migrations where name = ?")
+      .get(migration.name);
+    if (isMigrated) {
+      continue;
+    }
+
+    console.log(`Running migration #${i + 1}: ${migration.name}`);
+    db.exec("begin");
+    try {
+      db.prepare("insert into __migrations (name) values (?)").run(
+        migration.name,
+      );
+      migration.migrate(db);
+      db.exec("commit");
+    } catch (e) {
+      db.exec("rollback");
+      throw e;
+    }
   }
+}
+
+function createMigrationsTable(db: DatabaseSync): void {
+  db.exec(`
+    create table if not exists __migrations (
+      name text primary key
+    )
+  `);
 }

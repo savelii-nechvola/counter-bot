@@ -1,5 +1,6 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { Migration } from "./types.js";
 
-export function _001Initial(_: DatabaseSync): void {
-  console.log("_001Initial");
-}
+export const _001Initial: Migration = {
+  name: "001_initial",
+  migrate: (_) => console.log("done _001Initial"),
+};
