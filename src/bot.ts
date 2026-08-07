@@ -21,7 +21,7 @@ export function startBot(options?: PollingOptions): void {
 
 function registerCommands(bot: AppBot): void {
   startCommand(bot);
-  testCommand(bot);
+  echoCommand(bot);
   randomizeTagCommand(bot);
 }
 
@@ -29,8 +29,8 @@ function startCommand(bot: AppBot): void {
   bot.command("start", (ctx) => ctx.reply("Welcome! Up and running."));
 }
 
-function testCommand(bot: AppBot): void {
-  bot.command("test", (ctx) => ctx.reply(ctx.message?.text ?? ""));
+function echoCommand(bot: AppBot): void {
+  bot.command("echo", (ctx) => ctx.reply(ctx.message?.text ?? ""));
 }
 
 function randomizeTagCommand(bot: AppBot): void {
