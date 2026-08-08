@@ -97,16 +97,9 @@ type Texts = {
 const TEXTS = loadTexts();
 
 function loadTexts(): Record<BotLanguage, Texts> {
-  try {
-    return JSON.parse(
-      readFileSync(new URL("./texts.json", import.meta.url), "utf8"),
-    ) as Record<BotLanguage, Texts>;
-  } catch {
-    // In production, transpiled files are in dist/src while texts.json remains in src.
     return JSON.parse(
       readFileSync(new URL("../../src/texts.json", import.meta.url), "utf8"),
     ) as Record<BotLanguage, Texts>;
-  }
 }
 
 export function startBot(options?: PollingOptions): void {
