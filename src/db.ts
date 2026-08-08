@@ -23,10 +23,23 @@ type NewTag = {
   name: string;
 };
 
+type NewUserTag = {
+  userId: number;
+  tagId: number;
+};
+
 export type Tag = {
   id: number;
   chatId: number;
   name: string;
+};
+
+export type UserTag = {
+  id: number;
+  userId: number;
+  tagId: number;
+  count: number;
+  lastGambleAt: number | null;
 };
 
 export function getTagByChatIdAndName(
@@ -65,6 +78,59 @@ export function updateTagByName(
       where chat_id = ? and name = ?
       returning id, chat_id, name`)
     .get(newName, chatId, oldName) ?? null) as Tag | null;
+}
+
+export function createUserTag(input: NewUserTag): UserTag {
+  return db
+    .prepare(`
+      insert into user_tag (user_id, tag_id, count)
+      values (?, ?, 0)
+      returning id, user_id as userId, tag_id as tagId, count, last_gamble_at as lastGambleAt
+    `)
+    .get(input.userId, input.tagId) as UserTag;
+}
+
+export function getUserTagByUserIdAndTagId(
+  userId: number,
+  tagId: number,
+): UserTag | null {
+  return (db
+    .prepare(`
+      select id, user_id as userId, tag_id as tagId, count, last_gamble_at as lastGambleAt
+      from user_tag
+      where user_id = ? and tag_id = ?
+    `)
+    .get(userId, tagId) ?? null) as UserTag | null;
+}
+
+export function getUserTagByChatIdUserIdAndTagName(
+  chatId: number,
+  userId: number,
+  tagName: string,
+): UserTag | null {
+  return (db
+    .prepare(`
+      select ut.id, ut.user_id as userId, ut.tag_id as tagId, ut.count, ut.last_gamble_at as lastGambleAt
+      from user_tag ut
+      join tag t on t.id = ut.tag_id
+      where t.chat_id = ? and ut.user_id = ? and t.name = ?
+    `)
+    .get(chatId, userId, tagName) ?? null) as UserTag | null;
+}
+
+export function updateUserTagCountAndLastGambleAt(
+  id: number,
+  count: number,
+  lastGambleAt: number,
+): UserTag | null {
+  return (db
+    .prepare(`
+      update user_tag
+      set count = ?, last_gamble_at = ?
+      where id = ?
+      returning id, user_id as userId, tag_id as tagId, count, last_gamble_at as lastGambleAt
+    `)
+    .get(count, lastGambleAt, id) ?? null) as UserTag | null;
 }
 
 export function getBotModeByChatId(chatId: number): BotMode {

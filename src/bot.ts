@@ -1,13 +1,17 @@
 import { type Api, Bot, type Context, type PollingOptions } from "grammy";
 import {
   type BotMode,
+  createUserTag,
   createTag,
   getBotModeByChatId,
   getTagByChatIdAndName,
+  getUserTagByChatIdUserIdAndTagName,
+  getUserTagByUserIdAndTagId,
   listTags,
   setBotModeByChatId,
   type Tag,
   transaction,
+  updateUserTagCountAndLastGambleAt,
   updateTagByName,
 } from "./db.js";
 import { envVars } from "./env.js";
@@ -33,6 +37,8 @@ export function startBot(options?: PollingOptions): void {
 
 function registerCommands(bot: AppBot): void {
   startCommand(bot);
+  startPlayCommand(bot);
+  gambleCommand(bot);
   setModeCommand(bot);
   getModeCommand(bot);
   echoCommand(bot);
@@ -45,6 +51,86 @@ function registerCommands(bot: AppBot): void {
 
 function startCommand(bot: AppBot): void {
   bot.command("start", (ctx) => ctx.reply("Welcome! Up and running."));
+}
+
+function startPlayCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("startplay", async (ctx) => {
+    const tagName = (ctx.message.text.split(" ")[1] ?? "").trim();
+    if (!tagName) {
+      await ctx.reply("Command usage: /startplay <tagName>");
+      return;
+    }
+    if (tagName.length > 50) {
+      await ctx.reply("Tag name should be <= 50 chars");
+      return;
+    }
+
+    const res = transaction((): Result<{ count: number }, string> => {
+      const tag = getTagByChatIdAndName(ctx.chatId, tagName);
+      if (!tag) {
+        return err(`Tag ${tagName} does not exist. Create it first with /newtag ${tagName}`);
+      }
+
+      const existingUserTag = getUserTagByUserIdAndTagId(ctx.from.id, tag.id);
+      if (existingUserTag) {
+        return ok({ count: existingUserTag.count });
+      }
+
+      const createdUserTag = createUserTag({ userId: ctx.from.id, tagId: tag.id });
+      return ok({ count: createdUserTag.count });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(`You are registered for ${tagName}. Current value: ${res.value.count}`);
+  });
+}
+
+function gambleCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("gamble", async (ctx) => {
+    const tagName = (ctx.message.text.split(" ")[1] ?? "").trim();
+    if (!tagName) {
+      await ctx.reply("Command usage: /gamble <tagName>");
+      return;
+    }
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    const res = transaction((): Result<{ delta: number; count: number }, string> => {
+      const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, ctx.from.id, tagName);
+      if (!userTag) {
+        return err(`You are not registered for ${tagName}. Use /startplay ${tagName}`);
+      }
+
+      if (userTag.lastGambleAt && now - userTag.lastGambleAt < dayMs) {
+        const remainingMs = dayMs - (now - userTag.lastGambleAt);
+        const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
+        return err(`You can gamble this tag again in about ${remainingHours} hour(s)`);
+      }
+
+      const delta = randomIntInRange(-10, 10);
+      const nextCount = userTag.count + delta;
+      const updated = updateUserTagCountAndLastGambleAt(userTag.id, nextCount, now);
+      if (!updated) {
+        return err("Unable to update tag value");
+      }
+
+      return ok({ delta, count: updated.count });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(
+      `${tagName}: ${formatDelta(res.value.delta)}. Current value: ${res.value.count}`,
+    );
+  });
 }
 
 function setModeCommand(bot: AppBot): void {
@@ -184,4 +270,12 @@ function parseBotMode(mode: string): BotMode | null {
   }
 
   return null;
+}
+
+function randomIntInRange(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function formatDelta(delta: number): string {
+  return delta > 0 ? `+${delta}` : `${delta}`;
 }
