@@ -1,7 +1,10 @@
 import { type Api, Bot, type Context, type PollingOptions } from "grammy";
+import { readFileSync } from "node:fs";
 import {
+  type BotLanguage,
   type BotMode,
   createUserTag,
+  getBotLanguageByChatId,
   createTag,
   getBotModeByChatId,
   getTagByChatIdAndName,
@@ -11,6 +14,7 @@ import {
   listUserTagStateByChatId,
   listUserTagStateByChatIdAndUserId,
   listTags,
+  setBotLanguageByChatId,
   setBotModeByChatId,
   type Tag,
   transaction,
@@ -25,6 +29,56 @@ import { err, ok, type Result } from "./utils.js";
 type AppBot = Bot<Context, Api>;
 
 const CHECK_MAX_PLAYERS_PER_TAG = 10;
+
+type Texts = {
+  welcome: string;
+  usageStartPlay: string;
+  usageGamble: string;
+  usageModifyTag: string;
+  usageCheckUser: string;
+  usageSetMode: string;
+  usageSetLang: string;
+  tagNameTooLong: string;
+  tagMissing: string;
+  registeredForTag: string;
+  notRegisteredForTag: string;
+  canGambleAgainAtUtc: string;
+  unableToUpdateTagValue: string;
+  gambleResult: string;
+  numberMustBePositiveInteger: string;
+  unknownUsername: string;
+  noTagForTarget: string;
+  modifyResult: string;
+  noPlayersForTag: string;
+  noPlayersInGame: string;
+  noGameTagsForUser: string;
+  modeUpdatedTo: string;
+  currentModeIs: string;
+  tagAlreadyExists: string;
+  usageNewTag: string;
+  usageUpdateTag: string;
+  sameTagSuccess: string;
+  tagByNameNotExists: string;
+  tagByNameAlreadyExists: string;
+  invalidLanguage: string;
+  languageUpdatedTo: string;
+  morePlayers: string;
+};
+
+const TEXTS = loadTexts();
+
+function loadTexts(): Record<BotLanguage, Texts> {
+  try {
+    return JSON.parse(
+      readFileSync(new URL("./texts.json", import.meta.url), "utf8"),
+    ) as Record<BotLanguage, Texts>;
+  } catch {
+    // In production, transpiled files are in dist/src while texts.json remains in src.
+    return JSON.parse(
+      readFileSync(new URL("../../src/texts.json", import.meta.url), "utf8"),
+    ) as Record<BotLanguage, Texts>;
+  }
+}
 
 export function startBot(options?: PollingOptions): void {
   const bot = new Bot(envVars.BOT_TOKEN);
@@ -50,6 +104,7 @@ function registerCommands(bot: AppBot): void {
   subtractFromUserTagCommand(bot);
   checkCommand(bot);
   checkUserCommand(bot);
+  setLanguageCommand(bot);
   setModeCommand(bot);
   getModeCommand(bot);
   echoCommand(bot);
@@ -61,18 +116,22 @@ function registerCommands(bot: AppBot): void {
 }
 
 function startCommand(bot: AppBot): void {
-  bot.command("start", (ctx) => ctx.reply("Welcome! Up and running."));
+  bot.command("start", (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    return ctx.reply(texts.welcome);
+  });
 }
 
 function startPlayCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("startplay", async (ctx) => {
     const tagName = (ctx.message.text.split(" ")[1] ?? "").trim();
+    const texts = getTexts(ctx.chatId);
     if (!tagName) {
-      await ctx.reply("Command usage: /startplay <tagName>");
+      await ctx.reply(texts.usageStartPlay);
       return;
     }
     if (tagName.length > 50) {
-      await ctx.reply("Tag name should be <= 50 chars");
+      await ctx.reply(texts.tagNameTooLong);
       return;
     }
 
@@ -85,7 +144,7 @@ function startPlayCommand(bot: AppBot): void {
 
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
-        return err(`Tag ${tagName} does not exist. Create it first with /newtag ${tagName}`);
+        return err(formatText(texts.tagMissing, { tagName }));
       }
 
       const existingUserTag = getUserTagByUserIdAndTagId(ctx.from.id, tag.id);
@@ -102,15 +161,16 @@ function startPlayCommand(bot: AppBot): void {
       return;
     }
 
-    await ctx.reply(`You are registered for ${tagName}. Current value: ${res.value.count}`);
+    await ctx.reply(formatText(texts.registeredForTag, { tagName, count: res.value.count }));
   });
 }
 
 function gambleCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("gamble", async (ctx) => {
     const tagName = (ctx.message.text.split(" ")[1] ?? "").trim();
+    const texts = getTexts(ctx.chatId);
     if (!tagName) {
-      await ctx.reply("Command usage: /gamble <tagName>");
+      await ctx.reply(texts.usageGamble);
       return;
     }
 
@@ -124,21 +184,19 @@ function gambleCommand(bot: AppBot): void {
 
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, ctx.from.id, tagName);
       if (!userTag) {
-        return err(`You are not registered for ${tagName}. Use /startplay ${tagName}`);
+        return err(formatText(texts.notRegisteredForTag, { tagName }));
       }
 
       if (userTag.lastGambleAt && isSameUtcDay(userTag.lastGambleAt, now)) {
         const remainingMs = msUntilNextUtcDay(now);
-        return err(
-          `You can gamble this tag again at 00:00 UTC (in ${formatDuration(remainingMs)})`,
-        );
+        return err(formatText(texts.canGambleAgainAtUtc, { remaining: formatDuration(remainingMs) }));
       }
 
       const delta = randomIntInRange(-10, 10);
       const nextCount = userTag.count + delta;
       const updated = updateUserTagCountAndLastGambleAt(userTag.id, nextCount, now);
       if (!updated) {
-        return err("Unable to update tag value");
+        return err(texts.unableToUpdateTagValue);
       }
 
       return ok({ delta, count: updated.count });
@@ -150,7 +208,11 @@ function gambleCommand(bot: AppBot): void {
     }
 
     await ctx.reply(
-      `${tagName}: ${formatDelta(res.value.delta)}. Current value: ${res.value.count}`,
+      formatText(texts.gambleResult, {
+        tagName,
+        delta: formatDelta(res.value.delta),
+        count: res.value.count,
+      }),
     );
   });
 }
@@ -169,15 +231,16 @@ function registerModifyUserTagCommand(
   direction: 1 | -1,
 ): void {
   bot.chatType(["group", "supergroup"]).command(commandName, async (ctx) => {
+    const texts = getTexts(ctx.chatId);
     const [, tagName, numberRaw, usernameRaw] = splitCommandArgs(ctx.message.text);
     if (!tagName || !numberRaw) {
-      await ctx.reply(`Command usage: /${commandName} <tagName> <number> <username>`);
+      await ctx.reply(formatText(texts.usageModifyTag, { commandName }));
       return;
     }
 
     const amount = Number(numberRaw);
     if (!Number.isInteger(amount) || amount <= 0) {
-      await ctx.reply("<number> should be a positive integer");
+      await ctx.reply(texts.numberMustBePositiveInteger);
       return;
     }
 
@@ -196,7 +259,7 @@ function registerModifyUserTagCommand(
       if (targetUsername) {
         const targetUser = getTelegramUserByUsernameNormalized(targetUsername);
         if (!targetUser) {
-          return err(`Unknown username @${targetUsername}. User should interact with bot first.`);
+          return err(formatText(texts.unknownUsername, { username: targetUsername }));
         }
 
         targetUserId = targetUser.userId;
@@ -205,16 +268,14 @@ function registerModifyUserTagCommand(
 
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, targetUserId, tagName);
       if (!userTag) {
-        return err(
-          `No ${tagName} for ${targetLabel}. Use /startplay ${tagName} from target user first.`,
-        );
+        return err(formatText(texts.noTagForTarget, { tagName, targetLabel }));
       }
 
       const delta = direction * amount;
       const nextCount = userTag.count + delta;
       const updated = updateUserTagCount(userTag.id, nextCount);
       if (!updated) {
-        return err("Unable to update tag value");
+        return err(texts.unableToUpdateTagValue);
       }
 
       return ok({ count: updated.count, delta, target: targetLabel });
@@ -225,14 +286,18 @@ function registerModifyUserTagCommand(
       return;
     }
 
-    await ctx.reply(
-      `${tagName}: ${formatDelta(res.value.delta)} for ${res.value.target}. Current value: ${res.value.count}`,
-    );
+    await ctx.reply(formatText(texts.modifyResult, {
+      tagName,
+      delta: formatDelta(res.value.delta),
+      target: res.value.target,
+      count: res.value.count,
+    }));
   });
 }
 
 function checkCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("check", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
     const [, tagNameRaw] = splitCommandArgs(ctx.message.text);
     const tagName = tagNameRaw?.trim();
 
@@ -240,16 +305,18 @@ function checkCommand(bot: AppBot): void {
       if (tagName) {
         const tag = getTagByChatIdAndName(ctx.chatId, tagName);
         if (!tag) {
-          return err(`Tag ${tagName} does not exist. Create it first with /newtag ${tagName}`);
+          return err(formatText(texts.tagMissing, { tagName }));
         }
       }
 
       const rows = listUserTagStateByChatId(ctx.chatId, tagName);
       if (!rows.length) {
-        return ok(tagName ? `No players for tag ${tagName}` : "No players in game yet");
+        return ok(tagName
+          ? formatText(texts.noPlayersForTag, { tagName })
+          : texts.noPlayersInGame);
       }
 
-      return ok(formatCheckRows(rows));
+      return ok(formatCheckRows(rows, texts));
     });
 
     if (!res.ok) {
@@ -261,24 +328,48 @@ function checkCommand(bot: AppBot): void {
   });
 }
 
+function setLanguageCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("lang", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    const [, languageInput] = splitCommandArgs(ctx.message.text);
+    if (!languageInput) {
+      await ctx.reply(texts.usageSetLang);
+      return;
+    }
+
+    const language = parseBotLanguage(languageInput);
+    if (!language) {
+      await ctx.reply(texts.invalidLanguage);
+      return;
+    }
+
+    const updatedLanguage = transaction(() => setBotLanguageByChatId(ctx.chatId, language));
+    const updatedTexts = TEXTS[updatedLanguage];
+    await ctx.reply(
+      formatText(updatedTexts.languageUpdatedTo, { language: formatBotLanguage(updatedLanguage) }),
+    );
+  });
+}
+
 function checkUserCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("checkuser", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
     const [, usernameRaw] = splitCommandArgs(ctx.message.text);
     const username = normalizeUsername(usernameRaw);
     if (!username) {
-      await ctx.reply("Command usage: /checkuser <username>");
+      await ctx.reply(texts.usageCheckUser);
       return;
     }
 
     const res = transaction((): Result<string, string> => {
       const targetUser = getTelegramUserByUsernameNormalized(username);
       if (!targetUser) {
-        return err(`Unknown username @${username}. User should interact with bot first.`);
+        return err(formatText(texts.unknownUsername, { username }));
       }
 
       const rows = listUserTagStateByChatIdAndUserId(ctx.chatId, targetUser.userId);
       if (!rows.length) {
-        return ok(`No game tags for @${username}`);
+        return ok(formatText(texts.noGameTagsForUser, { username }));
       }
 
       return ok(formatCheckUserRows(username, rows));
@@ -295,22 +386,24 @@ function checkUserCommand(bot: AppBot): void {
 
 function setModeCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("setmode", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
     const modeInput = (ctx.message.text.split(" ")[1] ?? "").toLowerCase();
     const mode = parseBotMode(modeInput);
     if (!mode) {
-      await ctx.reply("Command usage: /setmode <automode|manualmode>");
+      await ctx.reply(texts.usageSetMode);
       return;
     }
 
     const updatedMode = transaction(() => setBotModeByChatId(ctx.chatId, mode));
-    await ctx.reply(`Mode updated to ${updatedMode}`);
+    await ctx.reply(formatText(texts.modeUpdatedTo, { mode: updatedMode }));
   });
 }
 
 function getModeCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("getmode", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
     const mode = getBotModeByChatId(ctx.chatId);
-    await ctx.reply(`Current mode is ${mode}`);
+    await ctx.reply(formatText(texts.currentModeIs, { mode }));
   });
 }
 
@@ -329,20 +422,21 @@ function randomizeTagCommand(bot: AppBot): void {
 
 function createTagCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("newtag", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
     const name = ctx.message.text.split(" ")[1];
     if (!name) {
-      await ctx.reply("Command usage: /newtag <tagName>");
+      await ctx.reply(texts.usageNewTag);
       return;
     }
     if (name.length > 50) {
-      await ctx.reply("Tag name should be <= 50 chars");
+      await ctx.reply(texts.tagNameTooLong);
       return;
     }
 
     const res = transaction((): Result<Tag, string> => {
       const existingTag = getTagByChatIdAndName(ctx.chatId, name);
       if (existingTag) {
-        return err("Tag with this name already exists");
+        return err(texts.tagAlreadyExists);
       }
       return ok(createTag({ chatId: ctx.chatId, name }));
     });
@@ -358,32 +452,33 @@ function createTagCommand(bot: AppBot): void {
 
 function updateTagCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("updatetag", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
     const [, oldName, newName] = ctx.message.text.split(" ");
     if (!oldName || !newName) {
-      await ctx.reply("Command usage: /updatetag <oldName> <newName>");
+      await ctx.reply(texts.usageUpdateTag);
       return;
     }
     if (newName.length > 50) {
-      await ctx.reply("Tag name should be <= 50 chars");
+      await ctx.reply(texts.tagNameTooLong);
       return;
     }
     if (oldName === newName) {
-      await ctx.reply("Wow! Great Success!");
+      await ctx.reply(texts.sameTagSuccess);
       return;
     }
 
     const res = transaction((): Result<Tag, string> => {
       const existingByOldName = getTagByChatIdAndName(ctx.chatId, oldName);
       if (!existingByOldName) {
-        return err(`Tag with the name "${oldName}" does not exist`);
+        return err(formatText(texts.tagByNameNotExists, { name: oldName }));
       }
       const existingTag = getTagByChatIdAndName(ctx.chatId, newName);
       if (existingTag) {
-        return err(`Tag with the name "${newName}" already exists`);
+        return err(formatText(texts.tagByNameAlreadyExists, { name: newName }));
       }
       const updatedTag = updateTagByName(ctx.chatId, oldName, newName);
       if (!updatedTag) {
-        return err(`Tag with the name "${oldName}" does not exist`);
+        return err(formatText(texts.tagByNameNotExists, { name: oldName }));
       }
       return ok(updatedTag);
     });
@@ -472,7 +567,10 @@ function formatDuration(ms: number): string {
   return `${hours}h ${minutes}m`;
 }
 
-function formatCheckRows(rows: Array<{ tagName: string; userId: number; count: number; username: string | null }>): string {
+function formatCheckRows(
+  rows: Array<{ tagName: string; userId: number; count: number; username: string | null }>,
+  texts: Texts,
+): string {
   const groups = new Map<string, Array<{ userId: number; count: number; username: string | null }>>();
 
   for (const row of rows) {
@@ -491,7 +589,7 @@ function formatCheckRows(rows: Array<{ tagName: string; userId: number; count: n
     }
 
     if (players.length > CHECK_MAX_PLAYERS_PER_TAG) {
-      lines.push(`- ... and ${players.length - CHECK_MAX_PLAYERS_PER_TAG} more`);
+      lines.push(formatText(texts.morePlayers, { count: players.length - CHECK_MAX_PLAYERS_PER_TAG }));
     }
   }
 
@@ -521,4 +619,47 @@ function normalizeUsername(username: string | undefined | null): string | null {
 
   const normalized = username.trim().replace(/^@/, "").toLowerCase();
   return normalized || null;
+}
+
+function formatText(
+  template: string,
+  values: Record<string, string | number>,
+): string {
+  return template.replaceAll(/\{([a-zA-Z0-9_]+)\}/g, (_m, key: string) => {
+    if (!(key in values)) {
+      return `{${key}}`;
+    }
+
+    return String(values[key]);
+  });
+}
+
+function getTexts(chatId: number): Texts {
+  return TEXTS[getBotLanguageByChatId(chatId)];
+}
+
+function parseBotLanguage(input: string): BotLanguage | null {
+  const normalized = input.trim().toLowerCase();
+  if (normalized === "eng") {
+    return "eng";
+  }
+  if (normalized === "ukr") {
+    return "ukr";
+  }
+  if (normalized === "rus") {
+    return "rus";
+  }
+
+  return null;
+}
+
+function formatBotLanguage(language: BotLanguage): "Eng" | "Ukr" | "Rus" {
+  if (language === "eng") {
+    return "Eng";
+  }
+  if (language === "ukr") {
+    return "Ukr";
+  }
+
+  return "Rus";
 }

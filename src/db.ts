@@ -3,8 +3,10 @@ import { DatabaseSync } from "node:sqlite";
 export const db = new DatabaseSync("db.db");
 
 export type BotMode = "automode" | "manualmode";
+export type BotLanguage = "eng" | "ukr" | "rus";
 
 const DEFAULT_BOT_MODE: BotMode = "manualmode";
+const DEFAULT_BOT_LANGUAGE: BotLanguage = "eng";
 
 export function transaction<T>(fn: () => T): T {
   db.exec("begin");
@@ -264,4 +266,28 @@ export function setBotModeByChatId(chatId: number, mode: BotMode): BotMode {
     .get(chatId, mode) as { mode: BotMode };
 
   return updated.mode;
+}
+
+export function getBotLanguageByChatId(chatId: number): BotLanguage {
+  const row = db
+    .prepare(`select language from chat_language where chat_id = ?`)
+    .get(chatId) as { language: BotLanguage } | undefined;
+
+  return row?.language ?? DEFAULT_BOT_LANGUAGE;
+}
+
+export function setBotLanguageByChatId(
+  chatId: number,
+  language: BotLanguage,
+): BotLanguage {
+  const updated = db
+    .prepare(`
+      insert into chat_language (chat_id, language)
+      values (?, ?)
+      on conflict(chat_id) do update set language = excluded.language
+      returning language
+    `)
+    .get(chatId, language) as { language: BotLanguage };
+
+  return updated.language;
 }

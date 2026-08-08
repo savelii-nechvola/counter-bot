@@ -3,6 +3,7 @@ import { _001Initial } from "./001_initial.js";
 import { _002BotModes } from "./002_bot_modes.js";
 import { _003UserTagGambleCooldown } from "./003_user_tag_gamble_cooldown.js";
 import { _004TelegramUsers } from "./004_telegram_users.js";
+import { _005ChatLanguage } from "./005_chat_language.js";
 import type { Migration } from "./types.js";
 
 const migrations: Migration[] = [
@@ -10,6 +11,7 @@ const migrations: Migration[] = [
   _002BotModes,
   _003UserTagGambleCooldown,
   _004TelegramUsers,
+  _005ChatLanguage,
 ];
 
 export function migrateAll(db: DatabaseSync): void {
