@@ -49,3 +49,16 @@ export function listTags(chatId: number): Tag[] {
     .prepare(`select id, chat_id, name from tag where chat_id = ?`)
     .all(chatId) as Tag[];
 }
+
+export function updateTagByName(
+  chatId: number,
+  oldName: string,
+  newName: string,
+): Tag | null {
+  return (db
+    .prepare(`
+      update tag set name = ?
+      where chat_id = ? and name = ?
+      returning id, chat_id, name`)
+    .get(newName, chatId, oldName) ?? null) as Tag | null;
+}
