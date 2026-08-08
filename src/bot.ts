@@ -58,7 +58,7 @@ function createTagCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("newtag", async (ctx) => {
     const name = ctx.message.text.split(" ")[1];
     if (!name) {
-      await ctx.reply("Provide a tag name as a command argument");
+      await ctx.reply("Command usage: /newtag <tagName>");
       return;
     }
     if (name.length > 50) {
