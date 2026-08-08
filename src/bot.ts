@@ -19,6 +19,7 @@ import {
   setBotLanguageByChatId,
   setBotModeByChatId,
   setUserPseudonym,
+  setUserPseudonymLocked,
   type Tag,
   transaction,
   updateUserTagCount,
@@ -83,6 +84,14 @@ type Texts = {
   morePlayers: string;
   noTagsInGroup: string;
   tagsListTitle: string;
+  usageChangePseudonym: string;
+  usageForceChangePseudonym: string;
+  usageChangeAccessToAlias: string;
+  pseudonymChangeLocked: string;
+  alreadyJoined: string;
+  aliasModificationEnabled: string;
+  aliasModificationDisabled: string;
+  forcePseudonymChanged: string;
 };
 
 const TEXTS = loadTexts();
@@ -121,6 +130,9 @@ function registerCommands(bot: AppBot): void {
   startCommand(bot);
   helpCommand(bot);
   joinCommand(bot);
+  changePseudonymCommand(bot);
+  forceChangePseudonymCommand(bot);
+  changeAccessToAliasCommand(bot);
   startPlayCommand(bot);
   gambleCommand(bot);
   forceTagCommand(bot);
@@ -200,6 +212,128 @@ function joinCommand(bot: AppBot): void {
     }
 
     await ctx.reply(formatText(texts.joinSuccess, { pseudonym: res.value }));
+  });
+}
+
+function changePseudonymCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("changepseudonym", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!pseudonymRaw) {
+      await ctx.reply(texts.usageChangePseudonym);
+      return;
+    }
+
+    const caller = getTelegramUserById(ctx.from.id);
+    if (caller?.pseudonymLocked) {
+      await ctx.reply(texts.pseudonymChangeLocked);
+      return;
+    }
+
+    const pseudonymNormalized = normalizePseudonym(pseudonymRaw);
+    if (!pseudonymNormalized || pseudonymNormalized.length > 32) {
+      await ctx.reply(texts.pseudonymTooLong);
+      return;
+    }
+
+    const res = transaction((): Result<string, string> => {
+      const existing = getTelegramUserByPseudonymNormalized(pseudonymNormalized);
+      if (existing && existing.userId !== ctx.from.id) {
+        return err(formatText(texts.pseudonymTaken, { pseudonym: pseudonymRaw }));
+      }
+      const user = setUserPseudonym(ctx.from.id, pseudonymRaw.trim(), pseudonymNormalized);
+      return ok(user.pseudonym!);
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(formatText(texts.joinSuccess, { pseudonym: res.value }));
+  });
+}
+
+function forceChangePseudonymCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("forcepseudonym", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
+    const [, oldPseudonymRaw, newPseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!oldPseudonymRaw || !newPseudonymRaw) {
+      await ctx.reply(texts.usageForceChangePseudonym);
+      return;
+    }
+
+    const oldNormalized = normalizePseudonym(oldPseudonymRaw);
+    const newNormalized = normalizePseudonym(newPseudonymRaw);
+    if (!oldNormalized || !newNormalized || newNormalized.length > 32) {
+      await ctx.reply(texts.usageForceChangePseudonym);
+      return;
+    }
+
+    const res = transaction((): Result<{ oldPseudonym: string; newPseudonym: string }, string> => {
+      const targetUser = getTelegramUserByPseudonymNormalized(oldNormalized);
+      if (!targetUser) {
+        return err(formatText(texts.unknownPseudonym, { pseudonym: oldPseudonymRaw }));
+      }
+
+      const existing = getTelegramUserByPseudonymNormalized(newNormalized);
+      if (existing && existing.userId !== targetUser.userId) {
+        return err(formatText(texts.pseudonymTaken, { pseudonym: newPseudonymRaw }));
+      }
+
+      const oldDisplay = targetUser.pseudonym ?? oldPseudonymRaw;
+      setUserPseudonym(targetUser.userId, newPseudonymRaw.trim(), newNormalized);
+      return ok({ oldPseudonym: oldDisplay, newPseudonym: newPseudonymRaw.trim() });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(formatText(texts.forcePseudonymChanged, {
+      oldPseudonym: res.value.oldPseudonym,
+      newPseudonym: res.value.newPseudonym,
+    }));
+  });
+}
+
+function changeAccessToAliasCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("changeaccesstoaliasmodification", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!pseudonymRaw) {
+      await ctx.reply(texts.usageChangeAccessToAlias);
+      return;
+    }
+
+    const pseudonymNormalized = normalizePseudonym(pseudonymRaw);
+    if (!pseudonymNormalized) {
+      await ctx.reply(texts.usageChangeAccessToAlias);
+      return;
+    }
+
+    const targetUser = getTelegramUserByPseudonymNormalized(pseudonymNormalized);
+    if (!targetUser) {
+      await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym: pseudonymRaw }));
+      return;
+    }
+
+    const nowLocked = !targetUser.pseudonymLocked;
+    setUserPseudonymLocked(targetUser.userId, nowLocked);
+
+    const displayPseudonym = targetUser.pseudonym ?? pseudonymRaw;
+    await ctx.reply(nowLocked
+      ? formatText(texts.aliasModificationDisabled, { pseudonym: displayPseudonym })
+      : formatText(texts.aliasModificationEnabled, { pseudonym: displayPseudonym }));
   });
 }
 

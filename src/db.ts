@@ -48,6 +48,7 @@ export type TelegramUser = {
   userId: number;
   pseudonym: string | null;
   pseudonymNormalized: string | null;
+  pseudonymLocked: number;
 };
 
 export type UserTagState = {
@@ -171,15 +172,19 @@ export function setUserPseudonym(
       on conflict(user_id) do update set
         pseudonym = excluded.pseudonym,
         pseudonym_normalized = excluded.pseudonym_normalized
-      returning user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized
+      returning user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized, pseudonym_locked as pseudonymLocked
     `)
     .get(userId, pseudonym, pseudonymNormalized) as TelegramUser;
+}
+
+export function setUserPseudonymLocked(userId: number, locked: boolean): void {
+  db.prepare(`update telegram_user set pseudonym_locked = ? where user_id = ?`).run(locked ? 1 : 0, userId);
 }
 
 export function getTelegramUserById(userId: number): TelegramUser | null {
   return (db
     .prepare(`
-      select user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized
+      select user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized, pseudonym_locked as pseudonymLocked
       from telegram_user
       where user_id = ?
     `)
@@ -191,7 +196,7 @@ export function getTelegramUserByPseudonymNormalized(
 ): TelegramUser | null {
   return (db
     .prepare(`
-      select user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized
+      select user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized, pseudonym_locked as pseudonymLocked
       from telegram_user
       where pseudonym_normalized = ?
     `)

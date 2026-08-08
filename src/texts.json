@@ -49,7 +49,15 @@
     "languageUpdatedTo": "Language updated to {language}",
     "morePlayers": "- ... and {count} more",
     "noTagsInGroup": "No tags in this group yet",
-    "tagsListTitle": "Tags:"
+    "tagsListTitle": "Tags:",
+    "usageChangePseudonym": "Command usage: /changepseudonym <new_pseudonym>",
+    "usageForceChangePseudonym": "Command usage: /forcepseudonym <old_pseudonym> <new_pseudonym>",
+    "usageChangeAccessToAlias": "Command usage: /changeaccesstoaliasmodification <pseudonym>",
+    "pseudonymChangeLocked": "Changing your pseudonym is currently not allowed",
+    "alreadyJoined": "You have already joined. Use /changepseudonym to change your pseudonym.",
+    "aliasModificationEnabled": "Pseudonym modification enabled for {pseudonym}",
+    "aliasModificationDisabled": "Pseudonym modification disabled for {pseudonym}",
+    "forcePseudonymChanged": "Pseudonym changed from {oldPseudonym} to {newPseudonym}"
   },
   "ukr": {
     "welcome": "Ласкаво просимо! Бот запущено.",
@@ -101,7 +109,15 @@
     "languageUpdatedTo": "Мову змінено на {language}",
     "morePlayers": "- ... і ще {count}",
     "noTagsInGroup": "У цій групі ще немає тегів",
-    "tagsListTitle": "Теги:"
+    "tagsListTitle": "Теги:",
+    "usageChangePseudonym": "Використання: /changepseudonym <new_pseudonym>",
+    "usageForceChangePseudonym": "Використання: /forcepseudonym <old_pseudonym> <new_pseudonym>",
+    "usageChangeAccessToAlias": "Використання: /changeaccesstoaliasmodification <pseudonym>",
+    "pseudonymChangeLocked": "Зміна псевдоніму наразі заборонена",
+    "alreadyJoined": "Ви вже зареєстровані. Для зміни псевдоніму використайте /changepseudonym.",
+    "aliasModificationEnabled": "Зміну псевдоніму для {pseudonym} дозволено",
+    "aliasModificationDisabled": "Зміну псевдоніму для {pseudonym} заборонено",
+    "forcePseudonymChanged": "Псевдонім змінено з {oldPseudonym} на {newPseudonym}"
   },
   "rus": {
     "welcome": "Добро пожаловать! Бот запущен.",
@@ -153,6 +169,14 @@
     "languageUpdatedTo": "Язык изменен на {language}",
     "morePlayers": "- ... и еще {count}",
     "noTagsInGroup": "В этой группе пока нет тегов",
-    "tagsListTitle": "Теги:"
+    "tagsListTitle": "Теги:",
+    "usageChangePseudonym": "Использование: /changepseudonym <new_pseudonym>",
+    "usageForceChangePseudonym": "Использование: /forcepseudonym <old_pseudonym> <new_pseudonym>",
+    "usageChangeAccessToAlias": "Использование: /changeaccesstoaliasmodification <pseudonym>",
+    "pseudonymChangeLocked": "Изменение псевдонима в данный момент запрещено",
+    "alreadyJoined": "Вы уже зарегистрированы. Для смены псевдонима используйте /changepseudonym.",
+    "aliasModificationEnabled": "Изменение псевдонима для {pseudonym} разрешено",
+    "aliasModificationDisabled": "Изменение псевдонима для {pseudonym} запрещено",
+    "forcePseudonymChanged": "Псевдоним изменён: {oldPseudonym} → {newPseudonym}"
   }
 }
