@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    container_name: counter-bot
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./db.db:/app/db.db

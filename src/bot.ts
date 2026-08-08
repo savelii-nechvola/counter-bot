@@ -98,7 +98,7 @@ const TEXTS = loadTexts();
 
 function loadTexts(): Record<BotLanguage, Texts> {
     return JSON.parse(
-      readFileSync(new URL("../../src/texts.json", import.meta.url), "utf8"),
+      readFileSync(new URL("./texts.json", import.meta.url), "utf8"),
     ) as Record<BotLanguage, Texts>;
 }
 
