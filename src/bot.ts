@@ -1,6 +1,7 @@
 import { type Api, Bot, type Context, type PollingOptions } from "grammy";
 import { readFileSync } from "node:fs";
 import {
+  db,
   type BotLanguage,
   type BotMode,
   createUserTag,
@@ -36,6 +37,7 @@ type Texts = {
   usageGamble: string;
   usageModifyTag: string;
   usageForce: string;
+  usageForcetag: string;
   usageCheckUser: string;
   usageSetMode: string;
   usageSetLang: string;
@@ -51,6 +53,8 @@ type Texts = {
   noTagForTarget: string;
   forceAssigned: string;
   forceAlreadyAssigned: string;
+  forcetagAssigned: string;
+  forcetagNoUsers: string;
   modifyResult: string;
   noPlayersForTag: string;
   noPlayersInGame: string;
@@ -111,6 +115,7 @@ function registerCommands(bot: AppBot): void {
   startPlayCommand(bot);
   gambleCommand(bot);
   forceTagCommand(bot);
+  forceTagToAllCommand(bot);
   addToUserTagCommand(bot);
   subtractFromUserTagCommand(bot);
   checkCommand(bot);
@@ -304,6 +309,72 @@ function forceTagCommand(bot: AppBot): void {
       tagName,
       username,
       count: res.value.count,
+    }));
+  });
+}
+
+function forceTagToAllCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("forcetag", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
+    const [, tagNameRaw] = splitCommandArgs(ctx.message.text);
+    const tagName = tagNameRaw?.trim();
+    if (!tagName) {
+      await ctx.reply(texts.usageForcetag);
+      return;
+    }
+    if (tagName.length > 50) {
+      await ctx.reply(texts.tagNameTooLong);
+      return;
+    }
+
+    const res = transaction((): Result<{ assignedCount: number }, string> => {
+      upsertTelegramUser({
+        userId: ctx.from.id,
+        username: ctx.from.username ?? null,
+        usernameNormalized: normalizeUsername(ctx.from.username),
+      });
+
+      const tag = getTagByChatIdAndName(ctx.chatId, tagName);
+      if (!tag) {
+        return err(formatText(texts.tagMissing, { tagName }));
+      }
+
+      const users = getKnownTelegramUsers();
+      const existingUserIds = new Set<number>(
+        (db.prepare(`select user_id from user_tag where tag_id = ?`).all(tag.id) as Array<{ user_id: number }>).map((row) => row.user_id),
+      );
+
+      let assignedCount = 0;
+      for (const user of users) {
+        if (existingUserIds.has(user.userId)) {
+          continue;
+        }
+
+        createUserTag({ userId: user.userId, tagId: tag.id });
+        existingUserIds.add(user.userId);
+        assignedCount += 1;
+      }
+
+      return ok({ assignedCount });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    if (res.value.assignedCount === 0) {
+      await ctx.reply(formatText(texts.forcetagNoUsers, { tagName }));
+      return;
+    }
+
+    await ctx.reply(formatText(texts.forcetagAssigned, {
+      tagName,
+      count: res.value.assignedCount,
     }));
   });
 }
@@ -714,6 +785,10 @@ function formatCheckUserRows(
 
 function splitCommandArgs(text: string): string[] {
   return text.trim().split(/\s+/g);
+}
+
+function getKnownTelegramUsers(): Array<{ userId: number }> {
+  return db.prepare(`select user_id as userId from telegram_user order by user_id`).all() as Array<{ userId: number }>;
 }
 
 function normalizeUsername(username: string | undefined | null): string | null {
