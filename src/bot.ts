@@ -57,6 +57,8 @@ type Texts = {
   noGameTagsForUser: string;
   modeUpdatedTo: string;
   currentModeIs: string;
+  adminOnlyInAutomode: string;
+  adminOnlyCommand: string;
   tagAlreadyExists: string;
   tagCreated: string;
   usageNewTag: string;
@@ -231,6 +233,10 @@ function subtractFromUserTagCommand(bot: AppBot): void {
 function forceTagCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("force", async (ctx) => {
     const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
     const [, tagName, usernameRaw] = splitCommandArgs(ctx.message.text);
     if (!tagName || !usernameRaw) {
       await ctx.reply(texts.usageForce);
@@ -298,6 +304,10 @@ function registerModifyUserTagCommand(
 ): void {
   bot.chatType(["group", "supergroup"]).command(commandName, async (ctx) => {
     const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
     const [, tagName, numberRaw, usernameRaw] = splitCommandArgs(ctx.message.text);
     if (!tagName || !numberRaw) {
       await ctx.reply(formatText(texts.usageModifyTag, { commandName }));
@@ -397,6 +407,10 @@ function checkCommand(bot: AppBot): void {
 function setLanguageCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("lang", async (ctx) => {
     const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
     const [, languageInput] = splitCommandArgs(ctx.message.text);
     if (!languageInput) {
       await ctx.reply(texts.usageSetLang);
@@ -453,6 +467,10 @@ function checkUserCommand(bot: AppBot): void {
 function setModeCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("setmode", async (ctx) => {
     const texts = getTexts(ctx.chatId);
+    if (!(await canUseAlwaysAdminCommands(ctx, texts))) {
+      return;
+    }
+
     const modeInput = (ctx.message.text.split(" ")[1] ?? "").toLowerCase();
     const mode = parseBotMode(modeInput);
     if (!mode) {
@@ -476,6 +494,10 @@ function getModeCommand(bot: AppBot): void {
 function createTagCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("newtag", async (ctx) => {
     const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
     const name = ctx.message.text.split(" ")[1];
     if (!name) {
       await ctx.reply(texts.usageNewTag);
@@ -506,6 +528,10 @@ function createTagCommand(bot: AppBot): void {
 function updateTagCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("updatetag", async (ctx) => {
     const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
     const [, oldName, newName] = ctx.message.text.split(" ");
     if (!oldName || !newName) {
       await ctx.reply(texts.usageUpdateTag);
@@ -685,6 +711,44 @@ function formatText(
 
     return String(values[key]);
   });
+}
+
+async function canUseAdminOnlyCommands(ctx: Context, texts: Texts): Promise<boolean> {
+  const chatId = ctx.chatId;
+  const from = ctx.from;
+  if (chatId === undefined || !from) {
+    return false;
+  }
+
+  if (getBotModeByChatId(chatId) !== "automode") {
+    return true;
+  }
+
+  const member = await ctx.api.getChatMember(chatId, from.id);
+  const isAdmin = member.status === "creator" || member.status === "administrator";
+  if (isAdmin) {
+    return true;
+  }
+
+  await ctx.reply(texts.adminOnlyInAutomode);
+  return false;
+}
+
+async function canUseAlwaysAdminCommands(ctx: Context, texts: Texts): Promise<boolean> {
+  const chatId = ctx.chatId;
+  const from = ctx.from;
+  if (chatId === undefined || !from) {
+    return false;
+  }
+
+  const member = await ctx.api.getChatMember(chatId, from.id);
+  const isAdmin = member.status === "creator" || member.status === "administrator";
+  if (isAdmin) {
+    return true;
+  }
+
+  await ctx.reply(texts.adminOnlyCommand);
+  return false;
 }
 
 function getTexts(chatId: number): Texts {
