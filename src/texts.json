@@ -1,5 +1,5 @@
 {
-  "eng": {
+  "en": {
     "welcome": "Welcome! Up and running.",
     "usageStartPlay": "Command usage: /startplay <tagName>",
     "usageGamble": "Command usage: /gamble <tagName>",
@@ -13,7 +13,7 @@
     "pseudonymTooLong": "Pseudonym should be 32 characters or fewer",
     "notJoined": "You must register first with /join <pseudonym>",
     "usageSetMode": "Command usage: /setmode <adminmode|usermode>",
-    "usageSetLang": "Command usage: /lang <eng|ukr|rus>",
+    "usageSetLang": "Command usage: /lang <en|ua|ru>",
     "tagNameTooLong": "Tag name should be <= 50 chars",
     "tagMissing": "Tag {tagName} does not exist. Create it first with /newtag {tagName}",
     "registeredForTag": "You are registered for {tagName}. Current value: {count}",
@@ -42,10 +42,10 @@
     "usageNewTag": "Command usage: /newtag <tagName>",
     "usageUpdateTag": "Command usage: /updatetag <oldName> <newName>",
     "sameTagSuccess": "Wow! Great Success!",
-    "helpMessage": "Available commands:\n/start - Check that bot is running\n/help - Show this help\n/join <pseudonym> - Register yourself with a pseudonym (required before playing)\n/newtag <tagName> - Create a new tag\n/updatetag <oldName> <newName> - Rename a tag\n/listtags - List all tags in this group\n/startplay <tagName> - Register yourself in game for an existing tag\n/gamble <tagName> - Randomly change your tag value from -10 to +10 (once per UTC day)\n/add <tagName> <number> [pseudonym] - Add value to tag (default target is you)\n/sub <tagName> <number> [pseudonym] - Subtract value from tag (default target is you)\n/force <tagName> <pseudonym> - Force assign tag to user with initial value 0\n/forcetag <tagName> - Force assign tag to all registered group participants\n/check - Show all tags and participant values (grouped by tag)\n/check <tagName> - Show values for one tag\n/checkuser <pseudonym> - Show all tag values for one user\n/getmode - Show current mode\n/setmode <adminmode|usermode> - Change mode (admins only always)\n/lang <eng|ukr|rus> - Change bot language\n\nPermissions:\n- In adminmode: /newtag, /updatetag, /add, /sub, /force, /forcetag, /lang are admins only\n- In usermode: those commands are available to all participants\n- /setmode is admins only in any mode",
+    "helpMessage": "Available commands:\n/start - Check that bot is running\n/help - Show this help\n/join <pseudonym> - Register yourself with a pseudonym (required before playing)\n/newtag <tagName> - Create a new tag\n/updatetag <oldName> <newName> - Rename a tag\n/listtags - List all tags in this group\n/startplay <tagName> - Register yourself in game for an existing tag\n/gamble <tagName> - Randomly change your tag value from -10 to +10 (once per UTC day)\n/add <tagName> <number> [pseudonym] - Add value to tag (default target is you)\n/sub <tagName> <number> [pseudonym] - Subtract value from tag (default target is you)\n/force <tagName> <pseudonym> - Force assign tag to user with initial value 0\n/forcetag <tagName> - Force assign tag to all registered group participants\n/check - Show all tags and participant values (grouped by tag)\n/check <tagName> - Show values for one tag\n/checkuser <pseudonym> - Show all tag values for one user\n/getmode - Show current mode\n/setmode <adminmode|usermode> - Change mode (admins only always)\n/lang <en|ua|ru> - Change bot language\n\nPermissions:\n- In adminmode: /newtag, /updatetag, /add, /sub, /force, /forcetag, /lang are admins only\n- In usermode: those commands are available to all participants\n- /setmode is admins only in any mode",
     "tagByNameNotExists": "Tag with the name \"{name}\" does not exist",
     "tagByNameAlreadyExists": "Tag with the name \"{name}\" already exists",
-    "invalidLanguage": "Unsupported language. Use: eng, ukr, rus",
+    "invalidLanguage": "Unsupported language. Use: en, ua, ru",
     "languageUpdatedTo": "Language updated to {language}",
     "morePlayers": "- ... and {count} more",
     "noTagsInGroup": "No tags in this group yet",
@@ -59,7 +59,7 @@
     "aliasModificationDisabled": "Pseudonym modification disabled for {pseudonym}",
     "forcePseudonymChanged": "Pseudonym changed from {oldPseudonym} to {newPseudonym}"
   },
-  "ukr": {
+  "ua": {
     "welcome": "Ласкаво просимо! Бот запущено.",
     "usageStartPlay": "Використання: /startplay <tagName>",
     "usageGamble": "Використання: /gamble <tagName>",
@@ -73,7 +73,7 @@
     "pseudonymTooLong": "Псевдонім має бути не більше 32 символів",
     "notJoined": "Спочатку зареєструйтесь: /join <pseudonym>",
     "usageSetMode": "Використання: /setmode <adminmode|usermode>",
-    "usageSetLang": "Використання: /lang <eng|ukr|rus>",
+    "usageSetLang": "Використання: /lang <en|ua|ru>",
     "tagNameTooLong": "Назва тега має бути до 50 символів",
     "tagMissing": "Тег {tagName} не існує. Спочатку створіть: /newtag {tagName}",
     "registeredForTag": "Ви зареєстровані для {tagName}. Поточне значення: {count}",
@@ -102,10 +102,10 @@
     "usageNewTag": "Використання: /newtag <tagName>",
     "usageUpdateTag": "Використання: /updatetag <oldName> <newName>",
     "sameTagSuccess": "Чудово! Успіх!",
-    "helpMessage": "Доступні команди:\n/start - Перевірити, що бот працює\n/help - Показати цю довідку\n/join <pseudonym> - Зареєструватись під псевдонімом (обов'язково перед грою)\n/newtag <tagName> - Створити новий тег\n/updatetag <oldName> <newName> - Перейменувати тег\n/listtags - Показати всі теги цієї групи\n/startplay <tagName> - Зареєструвати себе в грі для існуючого тега\n/gamble <tagName> - Випадково змінити ваше значення тега від -10 до +10 (раз на UTC-добу)\n/add <tagName> <number> [pseudonym] - Додати значення до тега (за замовчуванням ціль - ви)\n/sub <tagName> <number> [pseudonym] - Відняти значення від тега (за замовчуванням ціль - ви)\n/force <tagName> <pseudonym> - Примусово видати тег користувачу з початковим значенням 0\n/forcetag <tagName> - Примусово видати тег усім зареєстрованим учасникам\n/check - Показати всі теги та значення учасників (групування за тегом)\n/check <tagName> - Показати значення для одного тега\n/checkuser <pseudonym> - Показати всі значення тегів одного користувача\n/getmode - Показати поточний режим\n/setmode <adminmode|usermode> - Змінити режим (завжди тільки для адмінів)\n/lang <eng|ukr|rus> - Змінити мову бота\n\nПрава доступу:\n- В adminmode: /newtag, /updatetag, /add, /sub, /force, /forcetag, /lang доступні лише адмінам\n- В usermode: ці команди доступні всім учасникам\n- /setmode доступна лише адмінам у будь-якому режимі",
+    "helpMessage": "Доступні команди:\n/start - Перевірити, що бот працює\n/help - Показати цю довідку\n/join <pseudonym> - Зареєструватись під псевдонімом (обов'язково перед грою)\n/newtag <tagName> - Створити новий тег\n/updatetag <oldName> <newName> - Перейменувати тег\n/listtags - Показати всі теги цієї групи\n/startplay <tagName> - Зареєструвати себе в грі для існуючого тега\n/gamble <tagName> - Випадково змінити ваше значення тега від -10 до +10 (раз на UTC-добу)\n/add <tagName> <number> [pseudonym] - Додати значення до тега (за замовчуванням ціль - ви)\n/sub <tagName> <number> [pseudonym] - Відняти значення від тега (за замовчуванням ціль - ви)\n/force <tagName> <pseudonym> - Примусово видати тег користувачу з початковим значенням 0\n/forcetag <tagName> - Примусово видати тег усім зареєстрованим учасникам\n/check - Показати всі теги та значення учасників (групування за тегом)\n/check <tagName> - Показати значення для одного тега\n/checkuser <pseudonym> - Показати всі значення тегів одного користувача\n/getmode - Показати поточний режим\n/setmode <adminmode|usermode> - Змінити режим (завжди тільки для адмінів)\n/lang <en|ua|ru> - Змінити мову бота\n\nПрава доступу:\n- В adminmode: /newtag, /updatetag, /add, /sub, /force, /forcetag, /lang доступні лише адмінам\n- В usermode: ці команди доступні всім учасникам\n- /setmode доступна лише адмінам у будь-якому режимі",
     "tagByNameNotExists": "Тега з назвою \"{name}\" не існує",
     "tagByNameAlreadyExists": "Тег з назвою \"{name}\" вже існує",
-    "invalidLanguage": "Непідтримувана мова. Використайте: eng, ukr, rus",
+    "invalidLanguage": "Непідтримувана мова. Використайте: en, ua, ru",
     "languageUpdatedTo": "Мову змінено на {language}",
     "morePlayers": "- ... і ще {count}",
     "noTagsInGroup": "У цій групі ще немає тегів",
@@ -119,7 +119,7 @@
     "aliasModificationDisabled": "Зміну псевдоніму для {pseudonym} заборонено",
     "forcePseudonymChanged": "Псевдонім змінено з {oldPseudonym} на {newPseudonym}"
   },
-  "rus": {
+  "ru": {
     "welcome": "Добро пожаловать! Бот запущен.",
     "usageStartPlay": "Использование: /startplay <tagName>",
     "usageGamble": "Использование: /gamble <tagName>",
@@ -133,7 +133,7 @@
     "pseudonymTooLong": "Псевдоним должен быть не более 32 символов",
     "notJoined": "Сначала зарегистрируйтесь: /join <pseudonym>",
     "usageSetMode": "Использование: /setmode <adminmode|usermode>",
-    "usageSetLang": "Использование: /lang <eng|ukr|rus>",
+    "usageSetLang": "Использование: /lang <en|ua|ru>",
     "tagNameTooLong": "Имя тега должно быть <= 50 символов",
     "tagMissing": "Тег {tagName} не существует. Сначала создайте его: /newtag {tagName}",
     "registeredForTag": "Вы зарегистрированы для {tagName}. Текущее значение: {count}",
@@ -162,10 +162,10 @@
     "usageNewTag": "Использование: /newtag <tagName>",
     "usageUpdateTag": "Использование: /updatetag <oldName> <newName>",
     "sameTagSuccess": "Вау! Большой успех!",
-    "helpMessage": "Доступные команды:\n/start - Проверить, что бот работает\n/help - Показать эту справку\n/join <pseudonym> - Зарегистрироваться под псевдонимом (обязательно перед игрой)\n/newtag <tagName> - Создать новый тег\n/updatetag <oldName> <newName> - Переименовать тег\n/listtags - Показать все теги этой группы\n/startplay <tagName> - Зарегистрировать себя в игре для существующего тега\n/gamble <tagName> - Случайно изменить значение тега от -10 до +10 (раз в UTC-сутки)\n/add <tagName> <number> [pseudonym] - Добавить значение к тегу (по умолчанию цель - вы)\n/sub <tagName> <number> [pseudonym] - Уменьшить значение тега (по умолчанию цель - вы)\n/force <tagName> <pseudonym> - Принудительно выдать тег пользователю со значением 0\n/forcetag <tagName> - Принудительно выдать тег всем зарегистрированным участникам\n/check - Показать все теги и значения участников (группировка по тегу)\n/check <tagName> - Показать значения по одному тегу\n/checkuser <pseudonym> - Показать все значения тегов одного пользователя\n/getmode - Показать текущий режим\n/setmode <adminmode|usermode> - Изменить режим (всегда только для админов)\n/lang <eng|ukr|rus> - Изменить язык бота\n\nПрава доступа:\n- В adminmode: /newtag, /updatetag, /add, /sub, /force, /forcetag, /lang доступны только админам\n- В usermode: эти команды доступны всем участникам\n- /setmode доступна только админам в любом режиме",
+    "helpMessage": "Доступные команды:\n/start - Проверить, что бот работает\n/help - Показать эту справку\n/join <pseudonym> - Зарегистрироваться под псевдонимом (обязательно перед игрой)\n/newtag <tagName> - Создать новый тег\n/updatetag <oldName> <newName> - Переименовать тег\n/listtags - Показать все теги этой группы\n/startplay <tagName> - Зарегистрировать себя в игре для существующего тега\n/gamble <tagName> - Случайно изменить значение тега от -10 до +10 (раз в UTC-сутки)\n/add <tagName> <number> [pseudonym] - Добавить значение к тегу (по умолчанию цель - вы)\n/sub <tagName> <number> [pseudonym] - Уменьшить значение тега (по умолчанию цель - вы)\n/force <tagName> <pseudonym> - Принудительно выдать тег пользователю со значением 0\n/forcetag <tagName> - Принудительно выдать тег всем зарегистрированным участникам\n/check - Показать все теги и значения участников (группировка по тегу)\n/check <tagName> - Показать значения по одному тегу\n/checkuser <pseudonym> - Показать все значения тегов одного пользователя\n/getmode - Показать текущий режим\n/setmode <adminmode|usermode> - Изменить режим (всегда только для админов)\n/lang <en|ua|ru> - Изменить язык бота\n\nПрава доступа:\n- В adminmode: /newtag, /updatetag, /add, /sub, /force, /forcetag, /lang доступны только админам\n- В usermode: эти команды доступны всем участникам\n- /setmode доступна только админам в любом режиме",
     "tagByNameNotExists": "Тег с именем \"{name}\" не существует",
     "tagByNameAlreadyExists": "Тег с именем \"{name}\" уже существует",
-    "invalidLanguage": "Неподдерживаемый язык. Используйте: eng, ukr, rus",
+    "invalidLanguage": "Неподдерживаемый язык. Используйте: en, ua, ru",
     "languageUpdatedTo": "Язык изменен на {language}",
     "morePlayers": "- ... и еще {count}",
     "noTagsInGroup": "В этой группе пока нет тегов",

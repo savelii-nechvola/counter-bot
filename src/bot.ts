@@ -1069,26 +1069,26 @@ function getTexts(chatId: number): Texts {
 
 function parseBotLanguage(input: string): BotLanguage | null {
   const normalized = input.trim().toLowerCase();
-  if (normalized === "eng") {
-    return "eng";
+  if (normalized === "en") {
+    return "en";
   }
-  if (normalized === "ukr") {
-    return "ukr";
+  if (normalized === "ua") {
+    return "ua";
   }
-  if (normalized === "rus") {
-    return "rus";
+  if (normalized === "ru") {
+    return "ru";
   }
 
   return null;
 }
 
-function formatBotLanguage(language: BotLanguage): "Eng" | "Ukr" | "Rus" {
-  if (language === "eng") {
-    return "Eng";
+function formatBotLanguage(language: BotLanguage): "en" | "ua" | "ru" {
+  if (language === "en") {
+    return "en";
   }
-  if (language === "ukr") {
-    return "Ukr";
+  if (language === "ua") {
+    return "ua";
   }
 
-  return "Rus";
+  return "ru";
 }

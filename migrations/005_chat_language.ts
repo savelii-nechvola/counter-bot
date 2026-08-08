@@ -6,7 +6,7 @@ export const _005ChatLanguage: Migration = {
     db.exec(`
       create table if not exists chat_language (
         chat_id integer primary key,
-        language text not null check (language in ('eng', 'ukr', 'rus'))
+        language text not null check (language in ('en', 'ua', 'ru'))
       )
     `);
   },
