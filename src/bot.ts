@@ -70,6 +70,8 @@ type Texts = {
   invalidLanguage: string;
   languageUpdatedTo: string;
   morePlayers: string;
+  noTagsInGroup: string;
+  tagsListTitle: string;
 };
 
 const TEXTS = loadTexts();
@@ -581,10 +583,24 @@ function updateTagCommand(bot: AppBot): void {
 }
 
 function listCommand(bot: AppBot): void {
-  bot.chatType(["group", "supergroup"]).command("listtags", async (ctx) => {
+  const handleList = async (ctx: Context): Promise<void> => {
+    if (ctx.chatId === undefined) {
+      return;
+    }
+
+    const texts = getTexts(ctx.chatId);
     const tags = listTags(ctx.chatId);
-    await ctx.reply(JSON.stringify(tags));
-  });
+    if (!tags.length) {
+      await ctx.reply(texts.noTagsInGroup);
+      return;
+    }
+
+    const lines = [texts.tagsListTitle, ...tags.map((tag) => `- ${tag.name}`)];
+    await ctx.reply(lines.join("\n"));
+  };
+
+  bot.chatType(["group", "supergroup"]).command("listtags", handleList);
+  bot.chatType(["group", "supergroup"]).command("listtag", handleList);
 }
 
 function automodeMessageHandler(bot: AppBot): void {
