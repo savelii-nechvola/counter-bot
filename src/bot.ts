@@ -35,6 +35,7 @@ type Texts = {
   usageStartPlay: string;
   usageGamble: string;
   usageModifyTag: string;
+  usageForce: string;
   usageCheckUser: string;
   usageSetMode: string;
   usageSetLang: string;
@@ -48,6 +49,8 @@ type Texts = {
   numberMustBePositiveInteger: string;
   unknownUsername: string;
   noTagForTarget: string;
+  forceAssigned: string;
+  forceAlreadyAssigned: string;
   modifyResult: string;
   noPlayersForTag: string;
   noPlayersInGame: string;
@@ -100,6 +103,7 @@ function registerCommands(bot: AppBot): void {
   startCommand(bot);
   startPlayCommand(bot);
   gambleCommand(bot);
+  forceTagCommand(bot);
   addToUserTagCommand(bot);
   subtractFromUserTagCommand(bot);
   checkCommand(bot);
@@ -223,6 +227,69 @@ function addToUserTagCommand(bot: AppBot): void {
 
 function subtractFromUserTagCommand(bot: AppBot): void {
   registerModifyUserTagCommand(bot, "sub", -1);
+}
+
+function forceTagCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("force", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    const [, tagName, usernameRaw] = splitCommandArgs(ctx.message.text);
+    if (!tagName || !usernameRaw) {
+      await ctx.reply(texts.usageForce);
+      return;
+    }
+
+    const username = normalizeUsername(usernameRaw);
+    if (!username) {
+      await ctx.reply(texts.usageForce);
+      return;
+    }
+
+    const res = transaction((): Result<{ count: number; forced: boolean }, string> => {
+      upsertTelegramUser({
+        userId: ctx.from.id,
+        username: ctx.from.username ?? null,
+        usernameNormalized: normalizeUsername(ctx.from.username),
+      });
+
+      const targetUser = getTelegramUserByUsernameNormalized(username);
+      if (!targetUser) {
+        return err(formatText(texts.unknownUsername, { username }));
+      }
+
+      const tag = getTagByChatIdAndName(ctx.chatId, tagName);
+      if (!tag) {
+        return err(formatText(texts.tagMissing, { tagName }));
+      }
+
+      const existingUserTag = getUserTagByUserIdAndTagId(targetUser.userId, tag.id);
+      if (existingUserTag) {
+        return ok({ count: existingUserTag.count, forced: false });
+      }
+
+      const createdUserTag = createUserTag({ userId: targetUser.userId, tagId: tag.id });
+      return ok({ count: createdUserTag.count, forced: true });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    if (res.value.forced) {
+      await ctx.reply(formatText(texts.forceAssigned, {
+        tagName,
+        username,
+        count: res.value.count,
+      }));
+      return;
+    }
+
+    await ctx.reply(formatText(texts.forceAlreadyAssigned, {
+      tagName,
+      username,
+      count: res.value.count,
+    }));
+  });
 }
 
 function registerModifyUserTagCommand(
