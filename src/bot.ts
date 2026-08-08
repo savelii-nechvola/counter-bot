@@ -1,6 +1,7 @@
 import { type Api, Bot, type Context, type PollingOptions } from "grammy";
 import { readFileSync } from "node:fs";
 import {
+  db,
   type BotLanguage,
   type BotMode,
   createUserTag,
@@ -8,7 +9,8 @@ import {
   createTag,
   getBotModeByChatId,
   getTagByChatIdAndName,
-  getTelegramUserByUsernameNormalized,
+  getTelegramUserById,
+  getTelegramUserByPseudonymNormalized,
   getUserTagByChatIdUserIdAndTagName,
   getUserTagByUserIdAndTagId,
   listUserTagStateByChatId,
@@ -16,12 +18,13 @@ import {
   listTags,
   setBotLanguageByChatId,
   setBotModeByChatId,
+  setUserPseudonym,
+  setUserPseudonymLocked,
   type Tag,
   transaction,
   updateUserTagCount,
   updateUserTagCountAndLastGambleAt,
   updateTagByName,
-  upsertTelegramUser,
 } from "./db.js";
 import { envVars } from "./env.js";
 import { err, ok, type Result } from "./utils.js";
@@ -36,6 +39,7 @@ type Texts = {
   usageGamble: string;
   usageModifyTag: string;
   usageForce: string;
+  usageForcetag: string;
   usageCheckUser: string;
   usageSetMode: string;
   usageSetLang: string;
@@ -47,17 +51,25 @@ type Texts = {
   unableToUpdateTagValue: string;
   gambleResult: string;
   numberMustBePositiveInteger: string;
-  unknownUsername: string;
+  unknownPseudonym: string;
+  userNotActiveInGroup: string;
+  usageJoin: string;
+  joinSuccess: string;
+  pseudonymTaken: string;
+  pseudonymTooLong: string;
+  notJoined: string;
   noTagForTarget: string;
   forceAssigned: string;
   forceAlreadyAssigned: string;
+  forcetagAssigned: string;
+  forcetagNoUsers: string;
   modifyResult: string;
   noPlayersForTag: string;
   noPlayersInGame: string;
   noGameTagsForUser: string;
   modeUpdatedTo: string;
   currentModeIs: string;
-  adminOnlyInAutomode: string;
+  adminOnlyInadminmode: string;
   adminOnlyCommand: string;
   tagAlreadyExists: string;
   tagCreated: string;
@@ -72,6 +84,14 @@ type Texts = {
   morePlayers: string;
   noTagsInGroup: string;
   tagsListTitle: string;
+  usageChangePseudonym: string;
+  usageForceChangePseudonym: string;
+  usageChangeAccessToAlias: string;
+  pseudonymChangeLocked: string;
+  alreadyJoined: string;
+  aliasModificationEnabled: string;
+  aliasModificationDisabled: string;
+  forcePseudonymChanged: string;
 };
 
 const TEXTS = loadTexts();
@@ -106,11 +126,17 @@ export function startBot(options?: PollingOptions): void {
 }
 
 function registerCommands(bot: AppBot): void {
+  requirePseudonymMiddleware(bot);
   startCommand(bot);
   helpCommand(bot);
+  joinCommand(bot);
+  changePseudonymCommand(bot);
+  forceChangePseudonymCommand(bot);
+  changeAccessToAliasCommand(bot);
   startPlayCommand(bot);
   gambleCommand(bot);
   forceTagCommand(bot);
+  forceTagToAllCommand(bot);
   addToUserTagCommand(bot);
   subtractFromUserTagCommand(bot);
   checkCommand(bot);
@@ -121,7 +147,25 @@ function registerCommands(bot: AppBot): void {
   listCommand(bot);
   createTagCommand(bot);
   updateTagCommand(bot);
-  automodeMessageHandler(bot);
+  adminmodeMessageHandler(bot);
+}
+
+function requirePseudonymMiddleware(bot: AppBot): void {
+  const freeCommands = new Set(["start", "help", "join"]);
+  bot.chatType(["group", "supergroup"]).use(async (ctx, next) => {
+    const command = ctx.message?.text?.match(/^\/([a-zA-Z_]+)/)?.[1]?.toLowerCase();
+    if (command && freeCommands.has(command)) {
+      await next();
+      return;
+    }
+
+    if (!ctx.from || !getTelegramUserById(ctx.from.id)?.pseudonym) {
+      await ctx.reply(getTexts(ctx.chat.id).notJoined);
+      return;
+    }
+
+    await next();
+  });
 }
 
 function startCommand(bot: AppBot): void {
@@ -135,6 +179,161 @@ function helpCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("help", (ctx) => {
     const texts = getTexts(ctx.chatId);
     return ctx.reply(texts.helpMessage);
+  });
+}
+
+function joinCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("join", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!pseudonymRaw) {
+      await ctx.reply(texts.usageJoin);
+      return;
+    }
+
+    const pseudonymNormalized = normalizePseudonym(pseudonymRaw);
+    if (!pseudonymNormalized || pseudonymNormalized.length > 32) {
+      await ctx.reply(texts.pseudonymTooLong);
+      return;
+    }
+
+    const res = transaction((): Result<string, string> => {
+      const existing = getTelegramUserByPseudonymNormalized(pseudonymNormalized);
+      if (existing && existing.userId !== ctx.from.id) {
+        return err(formatText(texts.pseudonymTaken, { pseudonym: pseudonymRaw }));
+      }
+      const user = setUserPseudonym(ctx.from.id, pseudonymRaw.trim(), pseudonymNormalized);
+      return ok(user.pseudonym!);
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(formatText(texts.joinSuccess, { pseudonym: res.value }));
+  });
+}
+
+function changePseudonymCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("changepseudonym", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!pseudonymRaw) {
+      await ctx.reply(texts.usageChangePseudonym);
+      return;
+    }
+
+    const caller = getTelegramUserById(ctx.from.id);
+    if (caller?.pseudonymLocked) {
+      await ctx.reply(texts.pseudonymChangeLocked);
+      return;
+    }
+
+    const pseudonymNormalized = normalizePseudonym(pseudonymRaw);
+    if (!pseudonymNormalized || pseudonymNormalized.length > 32) {
+      await ctx.reply(texts.pseudonymTooLong);
+      return;
+    }
+
+    const res = transaction((): Result<string, string> => {
+      const existing = getTelegramUserByPseudonymNormalized(pseudonymNormalized);
+      if (existing && existing.userId !== ctx.from.id) {
+        return err(formatText(texts.pseudonymTaken, { pseudonym: pseudonymRaw }));
+      }
+      const user = setUserPseudonym(ctx.from.id, pseudonymRaw.trim(), pseudonymNormalized);
+      return ok(user.pseudonym!);
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(formatText(texts.joinSuccess, { pseudonym: res.value }));
+  });
+}
+
+function forceChangePseudonymCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("forcepseudonym", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
+    const [, oldPseudonymRaw, newPseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!oldPseudonymRaw || !newPseudonymRaw) {
+      await ctx.reply(texts.usageForceChangePseudonym);
+      return;
+    }
+
+    const oldNormalized = normalizePseudonym(oldPseudonymRaw);
+    const newNormalized = normalizePseudonym(newPseudonymRaw);
+    if (!oldNormalized || !newNormalized || newNormalized.length > 32) {
+      await ctx.reply(texts.usageForceChangePseudonym);
+      return;
+    }
+
+    const res = transaction((): Result<{ oldPseudonym: string; newPseudonym: string }, string> => {
+      const targetUser = getTelegramUserByPseudonymNormalized(oldNormalized);
+      if (!targetUser) {
+        return err(formatText(texts.unknownPseudonym, { pseudonym: oldPseudonymRaw }));
+      }
+
+      const existing = getTelegramUserByPseudonymNormalized(newNormalized);
+      if (existing && existing.userId !== targetUser.userId) {
+        return err(formatText(texts.pseudonymTaken, { pseudonym: newPseudonymRaw }));
+      }
+
+      const oldDisplay = targetUser.pseudonym ?? oldPseudonymRaw;
+      setUserPseudonym(targetUser.userId, newPseudonymRaw.trim(), newNormalized);
+      return ok({ oldPseudonym: oldDisplay, newPseudonym: newPseudonymRaw.trim() });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(formatText(texts.forcePseudonymChanged, {
+      oldPseudonym: res.value.oldPseudonym,
+      newPseudonym: res.value.newPseudonym,
+    }));
+  });
+}
+
+function changeAccessToAliasCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("changeaccesstoaliasmodification", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!pseudonymRaw) {
+      await ctx.reply(texts.usageChangeAccessToAlias);
+      return;
+    }
+
+    const pseudonymNormalized = normalizePseudonym(pseudonymRaw);
+    if (!pseudonymNormalized) {
+      await ctx.reply(texts.usageChangeAccessToAlias);
+      return;
+    }
+
+    const targetUser = getTelegramUserByPseudonymNormalized(pseudonymNormalized);
+    if (!targetUser) {
+      await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym: pseudonymRaw }));
+      return;
+    }
+
+    const nowLocked = !targetUser.pseudonymLocked;
+    setUserPseudonymLocked(targetUser.userId, nowLocked);
+
+    const displayPseudonym = targetUser.pseudonym ?? pseudonymRaw;
+    await ctx.reply(nowLocked
+      ? formatText(texts.aliasModificationDisabled, { pseudonym: displayPseudonym })
+      : formatText(texts.aliasModificationEnabled, { pseudonym: displayPseudonym }));
   });
 }
 
@@ -152,12 +351,6 @@ function startPlayCommand(bot: AppBot): void {
     }
 
     const res = transaction((): Result<{ count: number }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
         return err(formatText(texts.tagMissing, { tagName }));
@@ -192,12 +385,6 @@ function gambleCommand(bot: AppBot): void {
 
     const now = Date.now();
     const res = transaction((): Result<{ delta: number; count: number }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, ctx.from.id, tagName);
       if (!userTag) {
         return err(formatText(texts.notRegisteredForTag, { tagName }));
@@ -254,24 +441,24 @@ function forceTagCommand(bot: AppBot): void {
       return;
     }
 
-    const username = normalizeUsername(usernameRaw);
-    if (!username) {
+    const pseudonym = normalizePseudonym(usernameRaw);
+    if (!pseudonym) {
       await ctx.reply(texts.usageForce);
       return;
     }
 
+    const targetUser = getTelegramUserByPseudonymNormalized(pseudonym);
+    if (!targetUser) {
+      await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym }));
+      return;
+    }
+
+    if (!(await isUserActiveInChat(ctx, targetUser.userId))) {
+      await ctx.reply(texts.userNotActiveInGroup);
+      return;
+    }
+
     const res = transaction((): Result<{ count: number; forced: boolean }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
-      const targetUser = getTelegramUserByUsernameNormalized(username);
-      if (!targetUser) {
-        return err(formatText(texts.unknownUsername, { username }));
-      }
-
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
         return err(formatText(texts.tagMissing, { tagName }));
@@ -291,10 +478,11 @@ function forceTagCommand(bot: AppBot): void {
       return;
     }
 
+    const displayPseudonym = targetUser.pseudonym ?? pseudonym;
     if (res.value.forced) {
       await ctx.reply(formatText(texts.forceAssigned, {
         tagName,
-        username,
+        pseudonym: displayPseudonym,
         count: res.value.count,
       }));
       return;
@@ -302,8 +490,75 @@ function forceTagCommand(bot: AppBot): void {
 
     await ctx.reply(formatText(texts.forceAlreadyAssigned, {
       tagName,
-      username,
+      pseudonym: displayPseudonym,
       count: res.value.count,
+    }));
+  });
+}
+
+function forceTagToAllCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("forcetag", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    if (!(await canUseAdminOnlyCommands(ctx, texts))) {
+      return;
+    }
+
+    const [, tagNameRaw] = splitCommandArgs(ctx.message.text);
+    const tagName = tagNameRaw?.trim();
+    if (!tagName) {
+      await ctx.reply(texts.usageForcetag);
+      return;
+    }
+    if (tagName.length > 50) {
+      await ctx.reply(texts.tagNameTooLong);
+      return;
+    }
+
+    const users = getJoinedTelegramUsers();
+    const activeUserIds = new Set<number>();
+    for (const user of users) {
+      if (await isUserActiveInChat(ctx, user.userId)) {
+        activeUserIds.add(user.userId);
+      }
+    }
+
+    const res = transaction((): Result<{ assignedCount: number }, string> => {
+      const tag = getTagByChatIdAndName(ctx.chatId, tagName);
+      if (!tag) {
+        return err(formatText(texts.tagMissing, { tagName }));
+      }
+
+      const existingUserIds = new Set<number>(
+        (db.prepare(`select user_id from user_tag where tag_id = ?`).all(tag.id) as Array<{ user_id: number }>).map((row) => row.user_id),
+      );
+
+      let assignedCount = 0;
+      for (const userId of activeUserIds) {
+        if (existingUserIds.has(userId)) {
+          continue;
+        }
+
+        createUserTag({ userId, tagId: tag.id });
+        existingUserIds.add(userId);
+        assignedCount += 1;
+      }
+
+      return ok({ assignedCount });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    if (res.value.assignedCount === 0) {
+      await ctx.reply(formatText(texts.forcetagNoUsers, { tagName }));
+      return;
+    }
+
+    await ctx.reply(formatText(texts.forcetagAssigned, {
+      tagName,
+      count: res.value.assignedCount,
     }));
   });
 }
@@ -331,27 +586,28 @@ function registerModifyUserTagCommand(
       return;
     }
 
-    const targetUsername = normalizeUsername(usernameRaw);
+    const targetPseudonym = normalizePseudonym(usernameRaw);
+
+    let targetUserId = ctx.from.id;
+    let targetLabel = "you";
+
+    if (targetPseudonym) {
+      const targetUser = getTelegramUserByPseudonymNormalized(targetPseudonym);
+      if (!targetUser) {
+        await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym: targetPseudonym }));
+        return;
+      }
+
+      if (!(await isUserActiveInChat(ctx, targetUser.userId))) {
+        await ctx.reply(texts.userNotActiveInGroup);
+        return;
+      }
+
+      targetUserId = targetUser.userId;
+      targetLabel = targetUser.pseudonym ?? targetPseudonym;
+    }
 
     const res = transaction((): Result<{ count: number; delta: number; target: string }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
-      let targetUserId = ctx.from.id;
-      let targetLabel = "you";
-
-      if (targetUsername) {
-        const targetUser = getTelegramUserByUsernameNormalized(targetUsername);
-        if (!targetUser) {
-          return err(formatText(texts.unknownUsername, { username: targetUsername }));
-        }
-
-        targetUserId = targetUser.userId;
-        targetLabel = `@${targetUsername}`;
-      }
 
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, targetUserId, tagName);
       if (!userTag) {
@@ -388,7 +644,7 @@ function checkCommand(bot: AppBot): void {
     const [, tagNameRaw] = splitCommandArgs(ctx.message.text);
     const tagName = tagNameRaw?.trim();
 
-    const res = transaction((): Result<string, string> => {
+    const res = transaction((): Result<Array<{ tagName: string; userId: number; count: number; pseudonym: string | null }>, string> => {
       if (tagName) {
         const tag = getTagByChatIdAndName(ctx.chatId, tagName);
         if (!tag) {
@@ -397,13 +653,7 @@ function checkCommand(bot: AppBot): void {
       }
 
       const rows = listUserTagStateByChatId(ctx.chatId, tagName);
-      if (!rows.length) {
-        return ok(tagName
-          ? formatText(texts.noPlayersForTag, { tagName })
-          : texts.noPlayersInGame);
-      }
-
-      return ok(formatCheckRows(rows, texts));
+      return ok(rows);
     });
 
     if (!res.ok) {
@@ -411,7 +661,21 @@ function checkCommand(bot: AppBot): void {
       return;
     }
 
-    await ctx.reply(res.value);
+    const visibleRows = [] as Array<{ tagName: string; userId: number; count: number; pseudonym: string | null }>;
+    for (const row of res.value) {
+      if (await isUserActiveInChat(ctx, row.userId)) {
+        visibleRows.push(row);
+      }
+    }
+
+    if (!visibleRows.length) {
+      await ctx.reply(tagName
+        ? formatText(texts.noPlayersForTag, { tagName })
+        : texts.noPlayersInGame);
+      return;
+    }
+
+    await ctx.reply(formatCheckRows(visibleRows, texts));
   });
 }
 
@@ -445,25 +709,31 @@ function setLanguageCommand(bot: AppBot): void {
 function checkUserCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("checkuser", async (ctx) => {
     const texts = getTexts(ctx.chatId);
-    const [, usernameRaw] = splitCommandArgs(ctx.message.text);
-    const username = normalizeUsername(usernameRaw);
-    if (!username) {
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    const pseudonym = normalizePseudonym(pseudonymRaw);
+    if (!pseudonym) {
       await ctx.reply(texts.usageCheckUser);
       return;
     }
 
-    const res = transaction((): Result<string, string> => {
-      const targetUser = getTelegramUserByUsernameNormalized(username);
-      if (!targetUser) {
-        return err(formatText(texts.unknownUsername, { username }));
-      }
+    const targetUser = getTelegramUserByPseudonymNormalized(pseudonym);
+    if (!targetUser) {
+      await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym }));
+      return;
+    }
 
+    if (!(await isUserActiveInChat(ctx, targetUser.userId))) {
+      await ctx.reply(texts.userNotActiveInGroup);
+      return;
+    }
+
+    const res = transaction((): Result<string, string> => {
       const rows = listUserTagStateByChatIdAndUserId(ctx.chatId, targetUser.userId);
       if (!rows.length) {
-        return ok(formatText(texts.noGameTagsForUser, { username }));
+        return ok(formatText(texts.noGameTagsForUser, { pseudonym: targetUser.pseudonym ?? pseudonym }));
       }
 
-      return ok(formatCheckUserRows(username, rows));
+      return ok(formatCheckUserRows(targetUser.pseudonym ?? pseudonym, rows));
     });
 
     if (!res.ok) {
@@ -603,14 +873,14 @@ function listCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("listtag", handleList);
 }
 
-function automodeMessageHandler(bot: AppBot): void {
+function adminmodeMessageHandler(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).on("message:text", async (ctx) => {
     const text = ctx.message.text.trim();
     if (!text || text.startsWith("/")) {
       return;
     }
 
-    if (getBotModeByChatId(ctx.chatId) !== "automode") {
+    if (getBotModeByChatId(ctx.chatId) !== "adminmode") {
       return;
     }
 
@@ -624,7 +894,7 @@ function automodeMessageHandler(bot: AppBot): void {
 }
 
 function parseBotMode(mode: string): BotMode | null {
-  if (mode === "automode" || mode === "manualmode") {
+  if (mode === "adminmode" || mode === "usermode") {
     return mode;
   }
 
@@ -672,14 +942,14 @@ function formatDuration(ms: number): string {
 }
 
 function formatCheckRows(
-  rows: Array<{ tagName: string; userId: number; count: number; username: string | null }>,
+  rows: Array<{ tagName: string; userId: number; count: number; pseudonym: string | null }>,
   texts: Texts,
 ): string {
-  const groups = new Map<string, Array<{ userId: number; count: number; username: string | null }>>();
+  const groups = new Map<string, Array<{ userId: number; count: number; pseudonym: string | null }>>();
 
   for (const row of rows) {
     const list = groups.get(row.tagName) ?? [];
-    list.push({ userId: row.userId, count: row.count, username: row.username });
+    list.push({ userId: row.userId, count: row.count, pseudonym: row.pseudonym });
     groups.set(row.tagName, list);
   }
 
@@ -688,7 +958,7 @@ function formatCheckRows(
     lines.push(`${tagName}:`);
     const topPlayers = players.slice(0, CHECK_MAX_PLAYERS_PER_TAG);
     for (const player of topPlayers) {
-      const userLabel = player.username ? `@${player.username}` : `user:${player.userId}`;
+      const userLabel = player.pseudonym ?? `user:${player.userId}`;
       lines.push(`- ${userLabel} = ${player.count}`);
     }
 
@@ -701,10 +971,10 @@ function formatCheckRows(
 }
 
 function formatCheckUserRows(
-  username: string,
+  pseudonym: string,
   rows: Array<{ tagName: string; count: number }>,
 ): string {
-  const lines = [`@${username}:`];
+  const lines = [`${pseudonym}:`];
   for (const row of rows) {
     lines.push(`- ${row.tagName} = ${row.count}`);
   }
@@ -716,13 +986,30 @@ function splitCommandArgs(text: string): string[] {
   return text.trim().split(/\s+/g);
 }
 
-function normalizeUsername(username: string | undefined | null): string | null {
-  if (!username) {
+function getJoinedTelegramUsers(): Array<{ userId: number }> {
+  return db.prepare(`select user_id as userId from telegram_user where pseudonym is not null order by user_id`).all() as Array<{ userId: number }>;
+}
+
+async function isUserActiveInChat(ctx: Context, userId: number): Promise<boolean> {
+  const chatId = ctx.chatId;
+  if (chatId === undefined) {
+    return false;
+  }
+
+  try {
+    const member = await ctx.api.getChatMember(chatId, userId);
+    return member.status === "creator" || member.status === "administrator" || member.status === "member";
+  } catch {
+    return false;
+  }
+}
+
+function normalizePseudonym(pseudonym: string | undefined | null): string | null {
+  if (!pseudonym) {
     return null;
   }
 
-  const normalized = username.trim().replace(/^@/, "").toLowerCase();
-  return normalized || null;
+  return pseudonym.trim().replace(/^@/, "").toLowerCase() || null;
 }
 
 function formatText(
@@ -745,7 +1032,7 @@ async function canUseAdminOnlyCommands(ctx: Context, texts: Texts): Promise<bool
     return false;
   }
 
-  if (getBotModeByChatId(chatId) !== "automode") {
+  if (getBotModeByChatId(chatId) !== "adminmode") {
     return true;
   }
 
@@ -755,7 +1042,7 @@ async function canUseAdminOnlyCommands(ctx: Context, texts: Texts): Promise<bool
     return true;
   }
 
-  await ctx.reply(texts.adminOnlyInAutomode);
+  await ctx.reply(texts.adminOnlyInadminmode);
   return false;
 }
 
