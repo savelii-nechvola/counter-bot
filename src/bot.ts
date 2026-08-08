@@ -58,6 +58,7 @@ type Texts = {
   modeUpdatedTo: string;
   currentModeIs: string;
   tagAlreadyExists: string;
+  tagCreated: string;
   usageNewTag: string;
   usageUpdateTag: string;
   sameTagSuccess: string;
@@ -111,8 +112,6 @@ function registerCommands(bot: AppBot): void {
   setLanguageCommand(bot);
   setModeCommand(bot);
   getModeCommand(bot);
-  echoCommand(bot);
-  randomizeTagCommand(bot);
   listCommand(bot);
   createTagCommand(bot);
   updateTagCommand(bot);
@@ -474,19 +473,6 @@ function getModeCommand(bot: AppBot): void {
   });
 }
 
-function echoCommand(bot: AppBot): void {
-  bot
-    .chatType(["group", "supergroup"])
-    .command("echo", (ctx) => ctx.reply(ctx.message.text ?? ""));
-}
-
-function randomizeTagCommand(bot: AppBot): void {
-  bot.chatType(["group", "supergroup"]).command("randomize", async (ctx) => {
-    const random = String(Math.random());
-    await ctx.reply(random);
-  });
-}
-
 function createTagCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("newtag", async (ctx) => {
     const texts = getTexts(ctx.chatId);
@@ -513,7 +499,7 @@ function createTagCommand(bot: AppBot): void {
       return;
     }
 
-    await ctx.reply(JSON.stringify(res.value));
+    await ctx.reply(formatText(texts.tagCreated, { tagName: res.value.name }));
   });
 }
 
