@@ -50,6 +50,7 @@ type Texts = {
   gambleResult: string;
   numberMustBePositiveInteger: string;
   unknownUsername: string;
+  userNotActiveInGroup: string;
   noTagForTarget: string;
   forceAssigned: string;
   forceAlreadyAssigned: string;
@@ -265,17 +266,23 @@ function forceTagCommand(bot: AppBot): void {
       return;
     }
 
+    const targetUser = getTelegramUserByUsernameNormalized(username);
+    if (!targetUser) {
+      await ctx.reply(formatText(texts.unknownUsername, { username }));
+      return;
+    }
+
+    if (!(await isUserActiveInChat(ctx, targetUser.userId))) {
+      await ctx.reply(texts.userNotActiveInGroup);
+      return;
+    }
+
     const res = transaction((): Result<{ count: number; forced: boolean }, string> => {
       upsertTelegramUser({
         userId: ctx.from.id,
         username: ctx.from.username ?? null,
         usernameNormalized: normalizeUsername(ctx.from.username),
       });
-
-      const targetUser = getTelegramUserByUsernameNormalized(username);
-      if (!targetUser) {
-        return err(formatText(texts.unknownUsername, { username }));
-      }
 
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
@@ -331,6 +338,14 @@ function forceTagToAllCommand(bot: AppBot): void {
       return;
     }
 
+    const users = getKnownTelegramUsers();
+    const activeUserIds = new Set<number>();
+    for (const user of users) {
+      if (await isUserActiveInChat(ctx, user.userId)) {
+        activeUserIds.add(user.userId);
+      }
+    }
+
     const res = transaction((): Result<{ assignedCount: number }, string> => {
       upsertTelegramUser({
         userId: ctx.from.id,
@@ -343,19 +358,18 @@ function forceTagToAllCommand(bot: AppBot): void {
         return err(formatText(texts.tagMissing, { tagName }));
       }
 
-      const users = getKnownTelegramUsers();
       const existingUserIds = new Set<number>(
         (db.prepare(`select user_id from user_tag where tag_id = ?`).all(tag.id) as Array<{ user_id: number }>).map((row) => row.user_id),
       );
 
       let assignedCount = 0;
-      for (const user of users) {
-        if (existingUserIds.has(user.userId)) {
+      for (const userId of activeUserIds) {
+        if (existingUserIds.has(userId)) {
           continue;
         }
 
-        createUserTag({ userId: user.userId, tagId: tag.id });
-        existingUserIds.add(user.userId);
+        createUserTag({ userId, tagId: tag.id });
+        existingUserIds.add(userId);
         assignedCount += 1;
       }
 
@@ -404,25 +418,31 @@ function registerModifyUserTagCommand(
 
     const targetUsername = normalizeUsername(usernameRaw);
 
+    let targetUserId = ctx.from.id;
+    let targetLabel = "you";
+
+    if (targetUsername) {
+      const targetUser = getTelegramUserByUsernameNormalized(targetUsername);
+      if (!targetUser) {
+        await ctx.reply(formatText(texts.unknownUsername, { username: targetUsername }));
+        return;
+      }
+
+      if (!(await isUserActiveInChat(ctx, targetUser.userId))) {
+        await ctx.reply(texts.userNotActiveInGroup);
+        return;
+      }
+
+      targetUserId = targetUser.userId;
+      targetLabel = `@${targetUsername}`;
+    }
+
     const res = transaction((): Result<{ count: number; delta: number; target: string }, string> => {
       upsertTelegramUser({
         userId: ctx.from.id,
         username: ctx.from.username ?? null,
         usernameNormalized: normalizeUsername(ctx.from.username),
       });
-
-      let targetUserId = ctx.from.id;
-      let targetLabel = "you";
-
-      if (targetUsername) {
-        const targetUser = getTelegramUserByUsernameNormalized(targetUsername);
-        if (!targetUser) {
-          return err(formatText(texts.unknownUsername, { username: targetUsername }));
-        }
-
-        targetUserId = targetUser.userId;
-        targetLabel = `@${targetUsername}`;
-      }
 
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, targetUserId, tagName);
       if (!userTag) {
@@ -459,7 +479,7 @@ function checkCommand(bot: AppBot): void {
     const [, tagNameRaw] = splitCommandArgs(ctx.message.text);
     const tagName = tagNameRaw?.trim();
 
-    const res = transaction((): Result<string, string> => {
+    const res = transaction((): Result<Array<{ tagName: string; userId: number; count: number; username: string | null }>, string> => {
       if (tagName) {
         const tag = getTagByChatIdAndName(ctx.chatId, tagName);
         if (!tag) {
@@ -468,13 +488,7 @@ function checkCommand(bot: AppBot): void {
       }
 
       const rows = listUserTagStateByChatId(ctx.chatId, tagName);
-      if (!rows.length) {
-        return ok(tagName
-          ? formatText(texts.noPlayersForTag, { tagName })
-          : texts.noPlayersInGame);
-      }
-
-      return ok(formatCheckRows(rows, texts));
+      return ok(rows);
     });
 
     if (!res.ok) {
@@ -482,7 +496,21 @@ function checkCommand(bot: AppBot): void {
       return;
     }
 
-    await ctx.reply(res.value);
+    const visibleRows = [] as Array<{ tagName: string; userId: number; count: number; username: string | null }>;
+    for (const row of res.value) {
+      if (await isUserActiveInChat(ctx, row.userId)) {
+        visibleRows.push(row);
+      }
+    }
+
+    if (!visibleRows.length) {
+      await ctx.reply(tagName
+        ? formatText(texts.noPlayersForTag, { tagName })
+        : texts.noPlayersInGame);
+      return;
+    }
+
+    await ctx.reply(formatCheckRows(visibleRows, texts));
   });
 }
 
@@ -523,12 +551,18 @@ function checkUserCommand(bot: AppBot): void {
       return;
     }
 
-    const res = transaction((): Result<string, string> => {
-      const targetUser = getTelegramUserByUsernameNormalized(username);
-      if (!targetUser) {
-        return err(formatText(texts.unknownUsername, { username }));
-      }
+    const targetUser = getTelegramUserByUsernameNormalized(username);
+    if (!targetUser) {
+      await ctx.reply(formatText(texts.unknownUsername, { username }));
+      return;
+    }
 
+    if (!(await isUserActiveInChat(ctx, targetUser.userId))) {
+      await ctx.reply(texts.userNotActiveInGroup);
+      return;
+    }
+
+    const res = transaction((): Result<string, string> => {
       const rows = listUserTagStateByChatIdAndUserId(ctx.chatId, targetUser.userId);
       if (!rows.length) {
         return ok(formatText(texts.noGameTagsForUser, { username }));
@@ -789,6 +823,20 @@ function splitCommandArgs(text: string): string[] {
 
 function getKnownTelegramUsers(): Array<{ userId: number }> {
   return db.prepare(`select user_id as userId from telegram_user order by user_id`).all() as Array<{ userId: number }>;
+}
+
+async function isUserActiveInChat(ctx: Context, userId: number): Promise<boolean> {
+  const chatId = ctx.chatId;
+  if (chatId === undefined) {
+    return false;
+  }
+
+  try {
+    const member = await ctx.api.getChatMember(chatId, userId);
+    return member.status === "creator" || member.status === "administrator" || member.status === "member";
+  } catch {
+    return false;
+  }
 }
 
 function normalizeUsername(username: string | undefined | null): string | null {
