@@ -23,11 +23,14 @@ export function migrateAll(db: DatabaseSync): void {
       );
       migration.migrate(db);
       db.exec("commit");
+      console.log(`Migration #${i + 1} completed successfully.`);
     } catch (e) {
       db.exec("rollback");
       throw e;
     }
   }
+
+  console.log("All migrations completed successfully.");
 }
 
 function createMigrationsTable(db: DatabaseSync): void {
