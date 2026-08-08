@@ -38,7 +38,9 @@
     "tagByNameAlreadyExists": "Tag with the name \"{name}\" already exists",
     "invalidLanguage": "Unsupported language. Use: eng, ukr, rus",
     "languageUpdatedTo": "Language updated to {language}",
-    "morePlayers": "- ... and {count} more"
+    "morePlayers": "- ... and {count} more",
+    "noTagsInGroup": "No tags in this group yet",
+    "tagsListTitle": "Tags:"
   },
   "ukr": {
     "welcome": "Ласкаво просимо! Бот запущено.",
@@ -79,7 +81,9 @@
     "tagByNameAlreadyExists": "Тег з назвою \"{name}\" вже існує",
     "invalidLanguage": "Непідтримувана мова. Використайте: eng, ukr, rus",
     "languageUpdatedTo": "Мову змінено на {language}",
-    "morePlayers": "- ... і ще {count}"
+    "morePlayers": "- ... і ще {count}",
+    "noTagsInGroup": "У цій групі ще немає тегів",
+    "tagsListTitle": "Теги:"
   },
   "rus": {
     "welcome": "Добро пожаловать! Бот запущен.",
@@ -120,6 +124,8 @@
     "tagByNameAlreadyExists": "Тег с именем \"{name}\" уже существует",
     "invalidLanguage": "Неподдерживаемый язык. Используйте: eng, ukr, rus",
     "languageUpdatedTo": "Язык изменен на {language}",
-    "morePlayers": "- ... и еще {count}"
+    "morePlayers": "- ... и еще {count}",
+    "noTagsInGroup": "В этой группе пока нет тегов",
+    "tagsListTitle": "Теги:"
   }
 }
