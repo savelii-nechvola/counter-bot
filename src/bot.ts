@@ -98,18 +98,17 @@ function gambleCommand(bot: AppBot): void {
     }
 
     const now = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
-
     const res = transaction((): Result<{ delta: number; count: number }, string> => {
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, ctx.from.id, tagName);
       if (!userTag) {
         return err(`You are not registered for ${tagName}. Use /startplay ${tagName}`);
       }
 
-      if (userTag.lastGambleAt && now - userTag.lastGambleAt < dayMs) {
-        const remainingMs = dayMs - (now - userTag.lastGambleAt);
-        const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
-        return err(`You can gamble this tag again in about ${remainingHours} hour(s)`);
+      if (userTag.lastGambleAt && isSameUtcDay(userTag.lastGambleAt, now)) {
+        const remainingMs = msUntilNextUtcDay(now);
+        return err(
+          `You can gamble this tag again at 00:00 UTC (in ${formatDuration(remainingMs)})`,
+        );
       }
 
       const delta = randomIntInRange(-10, 10);
@@ -278,4 +277,36 @@ function randomIntInRange(min: number, max: number): number {
 
 function formatDelta(delta: number): string {
   return delta > 0 ? `+${delta}` : `${delta}`;
+}
+
+function isSameUtcDay(timestampA: number, timestampB: number): boolean {
+  const a = new Date(timestampA);
+  const b = new Date(timestampB);
+
+  return a.getUTCFullYear() === b.getUTCFullYear()
+    && a.getUTCMonth() === b.getUTCMonth()
+    && a.getUTCDate() === b.getUTCDate();
+}
+
+function msUntilNextUtcDay(nowTs: number): number {
+  const now = new Date(nowTs);
+  const nextUtcMidnight = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+    0,
+    0,
+    0,
+    0,
+  );
+
+  return Math.max(0, nextUtcMidnight - nowTs);
+}
+
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.ceil(ms / (60 * 1000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
 }
