@@ -30,12 +30,6 @@ type NewUserTag = {
   tagId: number;
 };
 
-type TelegramUserInput = {
-  userId: number;
-  username: string | null;
-  usernameNormalized: string | null;
-};
-
 export type Tag = {
   id: number;
   chatId: number;
@@ -52,15 +46,15 @@ export type UserTag = {
 
 export type TelegramUser = {
   userId: number;
-  username: string | null;
-  usernameNormalized: string | null;
+  pseudonym: string | null;
+  pseudonymNormalized: string | null;
 };
 
 export type UserTagState = {
   tagName: string;
   userId: number;
   count: number;
-  username: string | null;
+  pseudonym: string | null;
 };
 
 export function getTagByChatIdAndName(
@@ -165,29 +159,43 @@ export function updateUserTagCount(id: number, count: number): UserTag | null {
     .get(count, id) ?? null) as UserTag | null;
 }
 
-export function upsertTelegramUser(input: TelegramUserInput): TelegramUser {
+export function setUserPseudonym(
+  userId: number,
+  pseudonym: string,
+  pseudonymNormalized: string,
+): TelegramUser {
   return db
     .prepare(`
-      insert into telegram_user (user_id, username, username_normalized)
+      insert into telegram_user (user_id, pseudonym, pseudonym_normalized)
       values (?, ?, ?)
       on conflict(user_id) do update set
-        username = excluded.username,
-        username_normalized = excluded.username_normalized
-      returning user_id as userId, username, username_normalized as usernameNormalized
+        pseudonym = excluded.pseudonym,
+        pseudonym_normalized = excluded.pseudonym_normalized
+      returning user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized
     `)
-    .get(input.userId, input.username, input.usernameNormalized) as TelegramUser;
+    .get(userId, pseudonym, pseudonymNormalized) as TelegramUser;
 }
 
-export function getTelegramUserByUsernameNormalized(
-  usernameNormalized: string,
+export function getTelegramUserById(userId: number): TelegramUser | null {
+  return (db
+    .prepare(`
+      select user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized
+      from telegram_user
+      where user_id = ?
+    `)
+    .get(userId) ?? null) as TelegramUser | null;
+}
+
+export function getTelegramUserByPseudonymNormalized(
+  pseudonymNormalized: string,
 ): TelegramUser | null {
   return (db
     .prepare(`
-      select user_id as userId, username, username_normalized as usernameNormalized
+      select user_id as userId, pseudonym, pseudonym_normalized as pseudonymNormalized
       from telegram_user
-      where username_normalized = ?
+      where pseudonym_normalized = ?
     `)
-    .get(usernameNormalized) ?? null) as TelegramUser | null;
+    .get(pseudonymNormalized) ?? null) as TelegramUser | null;
 }
 
 export function listUserTagStateByChatId(
@@ -201,7 +209,7 @@ export function listUserTagStateByChatId(
           t.name as tagName,
           ut.user_id as userId,
           ut.count,
-          tu.username
+          tu.pseudonym
         from user_tag ut
         join tag t on t.id = ut.tag_id
         left join telegram_user tu on tu.user_id = ut.user_id
@@ -217,7 +225,7 @@ export function listUserTagStateByChatId(
         t.name as tagName,
         ut.user_id as userId,
         ut.count,
-        tu.username
+        tu.pseudonym
       from user_tag ut
       join tag t on t.id = ut.tag_id
       left join telegram_user tu on tu.user_id = ut.user_id
@@ -237,7 +245,7 @@ export function listUserTagStateByChatIdAndUserId(
         t.name as tagName,
         ut.user_id as userId,
         ut.count,
-        tu.username
+        tu.pseudonym
       from user_tag ut
       join tag t on t.id = ut.tag_id
       left join telegram_user tu on tu.user_id = ut.user_id

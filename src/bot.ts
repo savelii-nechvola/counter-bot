@@ -9,7 +9,8 @@ import {
   createTag,
   getBotModeByChatId,
   getTagByChatIdAndName,
-  getTelegramUserByUsernameNormalized,
+  getTelegramUserById,
+  getTelegramUserByPseudonymNormalized,
   getUserTagByChatIdUserIdAndTagName,
   getUserTagByUserIdAndTagId,
   listUserTagStateByChatId,
@@ -17,12 +18,12 @@ import {
   listTags,
   setBotLanguageByChatId,
   setBotModeByChatId,
+  setUserPseudonym,
   type Tag,
   transaction,
   updateUserTagCount,
   updateUserTagCountAndLastGambleAt,
   updateTagByName,
-  upsertTelegramUser,
 } from "./db.js";
 import { envVars } from "./env.js";
 import { err, ok, type Result } from "./utils.js";
@@ -49,8 +50,13 @@ type Texts = {
   unableToUpdateTagValue: string;
   gambleResult: string;
   numberMustBePositiveInteger: string;
-  unknownUsername: string;
+  unknownPseudonym: string;
   userNotActiveInGroup: string;
+  usageJoin: string;
+  joinSuccess: string;
+  pseudonymTaken: string;
+  pseudonymTooLong: string;
+  notJoined: string;
   noTagForTarget: string;
   forceAssigned: string;
   forceAlreadyAssigned: string;
@@ -111,8 +117,10 @@ export function startBot(options?: PollingOptions): void {
 }
 
 function registerCommands(bot: AppBot): void {
+  requirePseudonymMiddleware(bot);
   startCommand(bot);
   helpCommand(bot);
+  joinCommand(bot);
   startPlayCommand(bot);
   gambleCommand(bot);
   forceTagCommand(bot);
@@ -130,6 +138,24 @@ function registerCommands(bot: AppBot): void {
   adminmodeMessageHandler(bot);
 }
 
+function requirePseudonymMiddleware(bot: AppBot): void {
+  const freeCommands = new Set(["start", "help", "join"]);
+  bot.chatType(["group", "supergroup"]).use(async (ctx, next) => {
+    const command = ctx.message?.text?.match(/^\/([a-zA-Z_]+)/)?.[1]?.toLowerCase();
+    if (command && freeCommands.has(command)) {
+      await next();
+      return;
+    }
+
+    if (!ctx.from || !getTelegramUserById(ctx.from.id)?.pseudonym) {
+      await ctx.reply(getTexts(ctx.chat.id).notJoined);
+      return;
+    }
+
+    await next();
+  });
+}
+
 function startCommand(bot: AppBot): void {
   bot.command("start", (ctx) => {
     const texts = getTexts(ctx.chatId);
@@ -141,6 +167,39 @@ function helpCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("help", (ctx) => {
     const texts = getTexts(ctx.chatId);
     return ctx.reply(texts.helpMessage);
+  });
+}
+
+function joinCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("join", async (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    if (!pseudonymRaw) {
+      await ctx.reply(texts.usageJoin);
+      return;
+    }
+
+    const pseudonymNormalized = normalizePseudonym(pseudonymRaw);
+    if (!pseudonymNormalized || pseudonymNormalized.length > 32) {
+      await ctx.reply(texts.pseudonymTooLong);
+      return;
+    }
+
+    const res = transaction((): Result<string, string> => {
+      const existing = getTelegramUserByPseudonymNormalized(pseudonymNormalized);
+      if (existing && existing.userId !== ctx.from.id) {
+        return err(formatText(texts.pseudonymTaken, { pseudonym: pseudonymRaw }));
+      }
+      const user = setUserPseudonym(ctx.from.id, pseudonymRaw.trim(), pseudonymNormalized);
+      return ok(user.pseudonym!);
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(formatText(texts.joinSuccess, { pseudonym: res.value }));
   });
 }
 
@@ -158,12 +217,6 @@ function startPlayCommand(bot: AppBot): void {
     }
 
     const res = transaction((): Result<{ count: number }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
         return err(formatText(texts.tagMissing, { tagName }));
@@ -198,12 +251,6 @@ function gambleCommand(bot: AppBot): void {
 
     const now = Date.now();
     const res = transaction((): Result<{ delta: number; count: number }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, ctx.from.id, tagName);
       if (!userTag) {
         return err(formatText(texts.notRegisteredForTag, { tagName }));
@@ -260,15 +307,15 @@ function forceTagCommand(bot: AppBot): void {
       return;
     }
 
-    const username = normalizeUsername(usernameRaw);
-    if (!username) {
+    const pseudonym = normalizePseudonym(usernameRaw);
+    if (!pseudonym) {
       await ctx.reply(texts.usageForce);
       return;
     }
 
-    const targetUser = getTelegramUserByUsernameNormalized(username);
+    const targetUser = getTelegramUserByPseudonymNormalized(pseudonym);
     if (!targetUser) {
-      await ctx.reply(formatText(texts.unknownUsername, { username }));
+      await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym }));
       return;
     }
 
@@ -278,12 +325,6 @@ function forceTagCommand(bot: AppBot): void {
     }
 
     const res = transaction((): Result<{ count: number; forced: boolean }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
         return err(formatText(texts.tagMissing, { tagName }));
@@ -303,10 +344,11 @@ function forceTagCommand(bot: AppBot): void {
       return;
     }
 
+    const displayPseudonym = targetUser.pseudonym ?? pseudonym;
     if (res.value.forced) {
       await ctx.reply(formatText(texts.forceAssigned, {
         tagName,
-        username,
+        pseudonym: displayPseudonym,
         count: res.value.count,
       }));
       return;
@@ -314,7 +356,7 @@ function forceTagCommand(bot: AppBot): void {
 
     await ctx.reply(formatText(texts.forceAlreadyAssigned, {
       tagName,
-      username,
+      pseudonym: displayPseudonym,
       count: res.value.count,
     }));
   });
@@ -338,7 +380,7 @@ function forceTagToAllCommand(bot: AppBot): void {
       return;
     }
 
-    const users = getKnownTelegramUsers();
+    const users = getJoinedTelegramUsers();
     const activeUserIds = new Set<number>();
     for (const user of users) {
       if (await isUserActiveInChat(ctx, user.userId)) {
@@ -347,12 +389,6 @@ function forceTagToAllCommand(bot: AppBot): void {
     }
 
     const res = transaction((): Result<{ assignedCount: number }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
-
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
         return err(formatText(texts.tagMissing, { tagName }));
@@ -416,15 +452,15 @@ function registerModifyUserTagCommand(
       return;
     }
 
-    const targetUsername = normalizeUsername(usernameRaw);
+    const targetPseudonym = normalizePseudonym(usernameRaw);
 
     let targetUserId = ctx.from.id;
     let targetLabel = "you";
 
-    if (targetUsername) {
-      const targetUser = getTelegramUserByUsernameNormalized(targetUsername);
+    if (targetPseudonym) {
+      const targetUser = getTelegramUserByPseudonymNormalized(targetPseudonym);
       if (!targetUser) {
-        await ctx.reply(formatText(texts.unknownUsername, { username: targetUsername }));
+        await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym: targetPseudonym }));
         return;
       }
 
@@ -434,15 +470,10 @@ function registerModifyUserTagCommand(
       }
 
       targetUserId = targetUser.userId;
-      targetLabel = `@${targetUsername}`;
+      targetLabel = targetUser.pseudonym ?? targetPseudonym;
     }
 
     const res = transaction((): Result<{ count: number; delta: number; target: string }, string> => {
-      upsertTelegramUser({
-        userId: ctx.from.id,
-        username: ctx.from.username ?? null,
-        usernameNormalized: normalizeUsername(ctx.from.username),
-      });
 
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, targetUserId, tagName);
       if (!userTag) {
@@ -479,7 +510,7 @@ function checkCommand(bot: AppBot): void {
     const [, tagNameRaw] = splitCommandArgs(ctx.message.text);
     const tagName = tagNameRaw?.trim();
 
-    const res = transaction((): Result<Array<{ tagName: string; userId: number; count: number; username: string | null }>, string> => {
+    const res = transaction((): Result<Array<{ tagName: string; userId: number; count: number; pseudonym: string | null }>, string> => {
       if (tagName) {
         const tag = getTagByChatIdAndName(ctx.chatId, tagName);
         if (!tag) {
@@ -496,7 +527,7 @@ function checkCommand(bot: AppBot): void {
       return;
     }
 
-    const visibleRows = [] as Array<{ tagName: string; userId: number; count: number; username: string | null }>;
+    const visibleRows = [] as Array<{ tagName: string; userId: number; count: number; pseudonym: string | null }>;
     for (const row of res.value) {
       if (await isUserActiveInChat(ctx, row.userId)) {
         visibleRows.push(row);
@@ -544,16 +575,16 @@ function setLanguageCommand(bot: AppBot): void {
 function checkUserCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("checkuser", async (ctx) => {
     const texts = getTexts(ctx.chatId);
-    const [, usernameRaw] = splitCommandArgs(ctx.message.text);
-    const username = normalizeUsername(usernameRaw);
-    if (!username) {
+    const [, pseudonymRaw] = splitCommandArgs(ctx.message.text);
+    const pseudonym = normalizePseudonym(pseudonymRaw);
+    if (!pseudonym) {
       await ctx.reply(texts.usageCheckUser);
       return;
     }
 
-    const targetUser = getTelegramUserByUsernameNormalized(username);
+    const targetUser = getTelegramUserByPseudonymNormalized(pseudonym);
     if (!targetUser) {
-      await ctx.reply(formatText(texts.unknownUsername, { username }));
+      await ctx.reply(formatText(texts.unknownPseudonym, { pseudonym }));
       return;
     }
 
@@ -565,10 +596,10 @@ function checkUserCommand(bot: AppBot): void {
     const res = transaction((): Result<string, string> => {
       const rows = listUserTagStateByChatIdAndUserId(ctx.chatId, targetUser.userId);
       if (!rows.length) {
-        return ok(formatText(texts.noGameTagsForUser, { username }));
+        return ok(formatText(texts.noGameTagsForUser, { pseudonym: targetUser.pseudonym ?? pseudonym }));
       }
 
-      return ok(formatCheckUserRows(username, rows));
+      return ok(formatCheckUserRows(targetUser.pseudonym ?? pseudonym, rows));
     });
 
     if (!res.ok) {
@@ -777,14 +808,14 @@ function formatDuration(ms: number): string {
 }
 
 function formatCheckRows(
-  rows: Array<{ tagName: string; userId: number; count: number; username: string | null }>,
+  rows: Array<{ tagName: string; userId: number; count: number; pseudonym: string | null }>,
   texts: Texts,
 ): string {
-  const groups = new Map<string, Array<{ userId: number; count: number; username: string | null }>>();
+  const groups = new Map<string, Array<{ userId: number; count: number; pseudonym: string | null }>>();
 
   for (const row of rows) {
     const list = groups.get(row.tagName) ?? [];
-    list.push({ userId: row.userId, count: row.count, username: row.username });
+    list.push({ userId: row.userId, count: row.count, pseudonym: row.pseudonym });
     groups.set(row.tagName, list);
   }
 
@@ -793,7 +824,7 @@ function formatCheckRows(
     lines.push(`${tagName}:`);
     const topPlayers = players.slice(0, CHECK_MAX_PLAYERS_PER_TAG);
     for (const player of topPlayers) {
-      const userLabel = player.username ? `@${player.username}` : `user:${player.userId}`;
+      const userLabel = player.pseudonym ?? `user:${player.userId}`;
       lines.push(`- ${userLabel} = ${player.count}`);
     }
 
@@ -806,10 +837,10 @@ function formatCheckRows(
 }
 
 function formatCheckUserRows(
-  username: string,
+  pseudonym: string,
   rows: Array<{ tagName: string; count: number }>,
 ): string {
-  const lines = [`@${username}:`];
+  const lines = [`${pseudonym}:`];
   for (const row of rows) {
     lines.push(`- ${row.tagName} = ${row.count}`);
   }
@@ -821,8 +852,8 @@ function splitCommandArgs(text: string): string[] {
   return text.trim().split(/\s+/g);
 }
 
-function getKnownTelegramUsers(): Array<{ userId: number }> {
-  return db.prepare(`select user_id as userId from telegram_user order by user_id`).all() as Array<{ userId: number }>;
+function getJoinedTelegramUsers(): Array<{ userId: number }> {
+  return db.prepare(`select user_id as userId from telegram_user where pseudonym is not null order by user_id`).all() as Array<{ userId: number }>;
 }
 
 async function isUserActiveInChat(ctx: Context, userId: number): Promise<boolean> {
@@ -839,13 +870,12 @@ async function isUserActiveInChat(ctx: Context, userId: number): Promise<boolean
   }
 }
 
-function normalizeUsername(username: string | undefined | null): string | null {
-  if (!username) {
+function normalizePseudonym(pseudonym: string | undefined | null): string | null {
+  if (!pseudonym) {
     return null;
   }
 
-  const normalized = username.trim().replace(/^@/, "").toLowerCase();
-  return normalized || null;
+  return pseudonym.trim().replace(/^@/, "").toLowerCase() || null;
 }
 
 function formatText(
