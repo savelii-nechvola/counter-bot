@@ -2,6 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 
 export const db = new DatabaseSync("db.db");
 
+export type BotMode = "automode" | "manualmode";
+
+const DEFAULT_BOT_MODE: BotMode = "manualmode";
+
 export function transaction<T>(fn: () => T): T {
   db.exec("begin");
   try {
@@ -61,4 +65,25 @@ export function updateTagByName(
       where chat_id = ? and name = ?
       returning id, chat_id, name`)
     .get(newName, chatId, oldName) ?? null) as Tag | null;
+}
+
+export function getBotModeByChatId(chatId: number): BotMode {
+  const row = db
+    .prepare(`select mode from chat_mode where chat_id = ?`)
+    .get(chatId) as { mode: BotMode } | undefined;
+
+  return row?.mode ?? DEFAULT_BOT_MODE;
+}
+
+export function setBotModeByChatId(chatId: number, mode: BotMode): BotMode {
+  const updated = db
+    .prepare(`
+      insert into chat_mode (chat_id, mode)
+      values (?, ?)
+      on conflict(chat_id) do update set mode = excluded.mode
+      returning mode
+    `)
+    .get(chatId, mode) as { mode: BotMode };
+
+  return updated.mode;
 }

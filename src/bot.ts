@@ -1,8 +1,11 @@
 import { type Api, Bot, type Context, type PollingOptions } from "grammy";
 import {
+  type BotMode,
   createTag,
+  getBotModeByChatId,
   getTagByChatIdAndName,
   listTags,
+  setBotModeByChatId,
   type Tag,
   transaction,
   updateTagByName,
@@ -30,15 +33,39 @@ export function startBot(options?: PollingOptions): void {
 
 function registerCommands(bot: AppBot): void {
   startCommand(bot);
+  setModeCommand(bot);
+  getModeCommand(bot);
   echoCommand(bot);
   randomizeTagCommand(bot);
   listCommand(bot);
   createTagCommand(bot);
   updateTagCommand(bot);
+  automodeMessageHandler(bot);
 }
 
 function startCommand(bot: AppBot): void {
   bot.command("start", (ctx) => ctx.reply("Welcome! Up and running."));
+}
+
+function setModeCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("setmode", async (ctx) => {
+    const modeInput = (ctx.message.text.split(" ")[1] ?? "").toLowerCase();
+    const mode = parseBotMode(modeInput);
+    if (!mode) {
+      await ctx.reply("Command usage: /setmode <automode|manualmode>");
+      return;
+    }
+
+    const updatedMode = transaction(() => setBotModeByChatId(ctx.chatId, mode));
+    await ctx.reply(`Mode updated to ${updatedMode}`);
+  });
+}
+
+function getModeCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("getmode", async (ctx) => {
+    const mode = getBotModeByChatId(ctx.chatId);
+    await ctx.reply(`Current mode is ${mode}`);
+  });
 }
 
 function echoCommand(bot: AppBot): void {
@@ -129,4 +156,32 @@ function listCommand(bot: AppBot): void {
     const tags = listTags(ctx.chatId);
     await ctx.reply(JSON.stringify(tags));
   });
+}
+
+function automodeMessageHandler(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).on("message:text", async (ctx) => {
+    const text = ctx.message.text.trim();
+    if (!text || text.startsWith("/")) {
+      return;
+    }
+
+    if (getBotModeByChatId(ctx.chatId) !== "automode") {
+      return;
+    }
+
+    const tag = getTagByChatIdAndName(ctx.chatId, text);
+    if (!tag) {
+      return;
+    }
+
+    await ctx.reply(JSON.stringify(tag));
+  });
+}
+
+function parseBotMode(mode: string): BotMode | null {
+  if (mode === "automode" || mode === "manualmode") {
+    return mode;
+  }
+
+  return null;
 }

@@ -1,8 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { _001Initial } from "./001_initial.js";
+import { _002BotModes } from "./002_bot_modes.js";
 import type { Migration } from "./types.js";
 
-const migrations: Migration[] = [_001Initial];
+const migrations: Migration[] = [_001Initial, _002BotModes];
 
 export function migrateAll(db: DatabaseSync): void {
   createMigrationsTable(db);
