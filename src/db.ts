@@ -28,6 +28,12 @@ type NewUserTag = {
   tagId: number;
 };
 
+type TelegramUserInput = {
+  userId: number;
+  username: string | null;
+  usernameNormalized: string | null;
+};
+
 export type Tag = {
   id: number;
   chatId: number;
@@ -40,6 +46,19 @@ export type UserTag = {
   tagId: number;
   count: number;
   lastGambleAt: number | null;
+};
+
+export type TelegramUser = {
+  userId: number;
+  username: string | null;
+  usernameNormalized: string | null;
+};
+
+export type UserTagState = {
+  tagName: string;
+  userId: number;
+  count: number;
+  username: string | null;
 };
 
 export function getTagByChatIdAndName(
@@ -131,6 +150,99 @@ export function updateUserTagCountAndLastGambleAt(
       returning id, user_id as userId, tag_id as tagId, count, last_gamble_at as lastGambleAt
     `)
     .get(count, lastGambleAt, id) ?? null) as UserTag | null;
+}
+
+export function updateUserTagCount(id: number, count: number): UserTag | null {
+  return (db
+    .prepare(`
+      update user_tag
+      set count = ?
+      where id = ?
+      returning id, user_id as userId, tag_id as tagId, count, last_gamble_at as lastGambleAt
+    `)
+    .get(count, id) ?? null) as UserTag | null;
+}
+
+export function upsertTelegramUser(input: TelegramUserInput): TelegramUser {
+  return db
+    .prepare(`
+      insert into telegram_user (user_id, username, username_normalized)
+      values (?, ?, ?)
+      on conflict(user_id) do update set
+        username = excluded.username,
+        username_normalized = excluded.username_normalized
+      returning user_id as userId, username, username_normalized as usernameNormalized
+    `)
+    .get(input.userId, input.username, input.usernameNormalized) as TelegramUser;
+}
+
+export function getTelegramUserByUsernameNormalized(
+  usernameNormalized: string,
+): TelegramUser | null {
+  return (db
+    .prepare(`
+      select user_id as userId, username, username_normalized as usernameNormalized
+      from telegram_user
+      where username_normalized = ?
+    `)
+    .get(usernameNormalized) ?? null) as TelegramUser | null;
+}
+
+export function listUserTagStateByChatId(
+  chatId: number,
+  tagName?: string,
+): UserTagState[] {
+  if (tagName) {
+    return db
+      .prepare(`
+        select
+          t.name as tagName,
+          ut.user_id as userId,
+          ut.count,
+          tu.username
+        from user_tag ut
+        join tag t on t.id = ut.tag_id
+        left join telegram_user tu on tu.user_id = ut.user_id
+        where t.chat_id = ? and t.name = ?
+        order by t.name asc, ut.count desc, ut.user_id asc
+      `)
+      .all(chatId, tagName) as UserTagState[];
+  }
+
+  return db
+    .prepare(`
+      select
+        t.name as tagName,
+        ut.user_id as userId,
+        ut.count,
+        tu.username
+      from user_tag ut
+      join tag t on t.id = ut.tag_id
+      left join telegram_user tu on tu.user_id = ut.user_id
+      where t.chat_id = ?
+      order by t.name asc, ut.count desc, ut.user_id asc
+    `)
+    .all(chatId) as UserTagState[];
+}
+
+export function listUserTagStateByChatIdAndUserId(
+  chatId: number,
+  userId: number,
+): UserTagState[] {
+  return db
+    .prepare(`
+      select
+        t.name as tagName,
+        ut.user_id as userId,
+        ut.count,
+        tu.username
+      from user_tag ut
+      join tag t on t.id = ut.tag_id
+      left join telegram_user tu on tu.user_id = ut.user_id
+      where t.chat_id = ? and ut.user_id = ?
+      order by t.name asc
+    `)
+    .all(chatId, userId) as UserTagState[];
 }
 
 export function getBotModeByChatId(chatId: number): BotMode {

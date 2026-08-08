@@ -2,9 +2,15 @@ import type { DatabaseSync } from "node:sqlite";
 import { _001Initial } from "./001_initial.js";
 import { _002BotModes } from "./002_bot_modes.js";
 import { _003UserTagGambleCooldown } from "./003_user_tag_gamble_cooldown.js";
+import { _004TelegramUsers } from "./004_telegram_users.js";
 import type { Migration } from "./types.js";
 
-const migrations: Migration[] = [_001Initial, _002BotModes, _003UserTagGambleCooldown];
+const migrations: Migration[] = [
+  _001Initial,
+  _002BotModes,
+  _003UserTagGambleCooldown,
+  _004TelegramUsers,
+];
 
 export function migrateAll(db: DatabaseSync): void {
   createMigrationsTable(db);

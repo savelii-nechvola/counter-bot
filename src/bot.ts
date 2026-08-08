@@ -5,19 +5,26 @@ import {
   createTag,
   getBotModeByChatId,
   getTagByChatIdAndName,
+  getTelegramUserByUsernameNormalized,
   getUserTagByChatIdUserIdAndTagName,
   getUserTagByUserIdAndTagId,
+  listUserTagStateByChatId,
+  listUserTagStateByChatIdAndUserId,
   listTags,
   setBotModeByChatId,
   type Tag,
   transaction,
+  updateUserTagCount,
   updateUserTagCountAndLastGambleAt,
   updateTagByName,
+  upsertTelegramUser,
 } from "./db.js";
 import { envVars } from "./env.js";
 import { err, ok, type Result } from "./utils.js";
 
 type AppBot = Bot<Context, Api>;
+
+const CHECK_MAX_PLAYERS_PER_TAG = 10;
 
 export function startBot(options?: PollingOptions): void {
   const bot = new Bot(envVars.BOT_TOKEN);
@@ -39,6 +46,10 @@ function registerCommands(bot: AppBot): void {
   startCommand(bot);
   startPlayCommand(bot);
   gambleCommand(bot);
+  addToUserTagCommand(bot);
+  subtractFromUserTagCommand(bot);
+  checkCommand(bot);
+  checkUserCommand(bot);
   setModeCommand(bot);
   getModeCommand(bot);
   echoCommand(bot);
@@ -66,6 +77,12 @@ function startPlayCommand(bot: AppBot): void {
     }
 
     const res = transaction((): Result<{ count: number }, string> => {
+      upsertTelegramUser({
+        userId: ctx.from.id,
+        username: ctx.from.username ?? null,
+        usernameNormalized: normalizeUsername(ctx.from.username),
+      });
+
       const tag = getTagByChatIdAndName(ctx.chatId, tagName);
       if (!tag) {
         return err(`Tag ${tagName} does not exist. Create it first with /newtag ${tagName}`);
@@ -99,6 +116,12 @@ function gambleCommand(bot: AppBot): void {
 
     const now = Date.now();
     const res = transaction((): Result<{ delta: number; count: number }, string> => {
+      upsertTelegramUser({
+        userId: ctx.from.id,
+        username: ctx.from.username ?? null,
+        usernameNormalized: normalizeUsername(ctx.from.username),
+      });
+
       const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, ctx.from.id, tagName);
       if (!userTag) {
         return err(`You are not registered for ${tagName}. Use /startplay ${tagName}`);
@@ -129,6 +152,144 @@ function gambleCommand(bot: AppBot): void {
     await ctx.reply(
       `${tagName}: ${formatDelta(res.value.delta)}. Current value: ${res.value.count}`,
     );
+  });
+}
+
+function addToUserTagCommand(bot: AppBot): void {
+  registerModifyUserTagCommand(bot, "add", 1);
+}
+
+function subtractFromUserTagCommand(bot: AppBot): void {
+  registerModifyUserTagCommand(bot, "sub", -1);
+}
+
+function registerModifyUserTagCommand(
+  bot: AppBot,
+  commandName: "add" | "sub",
+  direction: 1 | -1,
+): void {
+  bot.chatType(["group", "supergroup"]).command(commandName, async (ctx) => {
+    const [, tagName, numberRaw, usernameRaw] = splitCommandArgs(ctx.message.text);
+    if (!tagName || !numberRaw) {
+      await ctx.reply(`Command usage: /${commandName} <tagName> <number> <username>`);
+      return;
+    }
+
+    const amount = Number(numberRaw);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      await ctx.reply("<number> should be a positive integer");
+      return;
+    }
+
+    const targetUsername = normalizeUsername(usernameRaw);
+
+    const res = transaction((): Result<{ count: number; delta: number; target: string }, string> => {
+      upsertTelegramUser({
+        userId: ctx.from.id,
+        username: ctx.from.username ?? null,
+        usernameNormalized: normalizeUsername(ctx.from.username),
+      });
+
+      let targetUserId = ctx.from.id;
+      let targetLabel = "you";
+
+      if (targetUsername) {
+        const targetUser = getTelegramUserByUsernameNormalized(targetUsername);
+        if (!targetUser) {
+          return err(`Unknown username @${targetUsername}. User should interact with bot first.`);
+        }
+
+        targetUserId = targetUser.userId;
+        targetLabel = `@${targetUsername}`;
+      }
+
+      const userTag = getUserTagByChatIdUserIdAndTagName(ctx.chatId, targetUserId, tagName);
+      if (!userTag) {
+        return err(
+          `No ${tagName} for ${targetLabel}. Use /startplay ${tagName} from target user first.`,
+        );
+      }
+
+      const delta = direction * amount;
+      const nextCount = userTag.count + delta;
+      const updated = updateUserTagCount(userTag.id, nextCount);
+      if (!updated) {
+        return err("Unable to update tag value");
+      }
+
+      return ok({ count: updated.count, delta, target: targetLabel });
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(
+      `${tagName}: ${formatDelta(res.value.delta)} for ${res.value.target}. Current value: ${res.value.count}`,
+    );
+  });
+}
+
+function checkCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("check", async (ctx) => {
+    const [, tagNameRaw] = splitCommandArgs(ctx.message.text);
+    const tagName = tagNameRaw?.trim();
+
+    const res = transaction((): Result<string, string> => {
+      if (tagName) {
+        const tag = getTagByChatIdAndName(ctx.chatId, tagName);
+        if (!tag) {
+          return err(`Tag ${tagName} does not exist. Create it first with /newtag ${tagName}`);
+        }
+      }
+
+      const rows = listUserTagStateByChatId(ctx.chatId, tagName);
+      if (!rows.length) {
+        return ok(tagName ? `No players for tag ${tagName}` : "No players in game yet");
+      }
+
+      return ok(formatCheckRows(rows));
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(res.value);
+  });
+}
+
+function checkUserCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("checkuser", async (ctx) => {
+    const [, usernameRaw] = splitCommandArgs(ctx.message.text);
+    const username = normalizeUsername(usernameRaw);
+    if (!username) {
+      await ctx.reply("Command usage: /checkuser <username>");
+      return;
+    }
+
+    const res = transaction((): Result<string, string> => {
+      const targetUser = getTelegramUserByUsernameNormalized(username);
+      if (!targetUser) {
+        return err(`Unknown username @${username}. User should interact with bot first.`);
+      }
+
+      const rows = listUserTagStateByChatIdAndUserId(ctx.chatId, targetUser.userId);
+      if (!rows.length) {
+        return ok(`No game tags for @${username}`);
+      }
+
+      return ok(formatCheckUserRows(username, rows));
+    });
+
+    if (!res.ok) {
+      await ctx.reply(res.error);
+      return;
+    }
+
+    await ctx.reply(res.value);
   });
 }
 
@@ -309,4 +470,55 @@ function formatDuration(ms: number): string {
   const minutes = totalMinutes % 60;
 
   return `${hours}h ${minutes}m`;
+}
+
+function formatCheckRows(rows: Array<{ tagName: string; userId: number; count: number; username: string | null }>): string {
+  const groups = new Map<string, Array<{ userId: number; count: number; username: string | null }>>();
+
+  for (const row of rows) {
+    const list = groups.get(row.tagName) ?? [];
+    list.push({ userId: row.userId, count: row.count, username: row.username });
+    groups.set(row.tagName, list);
+  }
+
+  const lines: string[] = [];
+  for (const [tagName, players] of groups) {
+    lines.push(`${tagName}:`);
+    const topPlayers = players.slice(0, CHECK_MAX_PLAYERS_PER_TAG);
+    for (const player of topPlayers) {
+      const userLabel = player.username ? `@${player.username}` : `user:${player.userId}`;
+      lines.push(`- ${userLabel} = ${player.count}`);
+    }
+
+    if (players.length > CHECK_MAX_PLAYERS_PER_TAG) {
+      lines.push(`- ... and ${players.length - CHECK_MAX_PLAYERS_PER_TAG} more`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function formatCheckUserRows(
+  username: string,
+  rows: Array<{ tagName: string; count: number }>,
+): string {
+  const lines = [`@${username}:`];
+  for (const row of rows) {
+    lines.push(`- ${row.tagName} = ${row.count}`);
+  }
+
+  return lines.join("\n");
+}
+
+function splitCommandArgs(text: string): string[] {
+  return text.trim().split(/\s+/g);
+}
+
+function normalizeUsername(username: string | undefined | null): string | null {
+  if (!username) {
+    return null;
+  }
+
+  const normalized = username.trim().replace(/^@/, "").toLowerCase();
+  return normalized || null;
 }
