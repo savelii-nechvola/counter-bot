@@ -64,6 +64,7 @@ type Texts = {
   usageNewTag: string;
   usageUpdateTag: string;
   sameTagSuccess: string;
+  helpMessage: string;
   tagByNameNotExists: string;
   tagByNameAlreadyExists: string;
   invalidLanguage: string;
@@ -104,6 +105,7 @@ export function startBot(options?: PollingOptions): void {
 
 function registerCommands(bot: AppBot): void {
   startCommand(bot);
+  helpCommand(bot);
   startPlayCommand(bot);
   gambleCommand(bot);
   forceTagCommand(bot);
@@ -124,6 +126,13 @@ function startCommand(bot: AppBot): void {
   bot.command("start", (ctx) => {
     const texts = getTexts(ctx.chatId);
     return ctx.reply(texts.welcome);
+  });
+}
+
+function helpCommand(bot: AppBot): void {
+  bot.chatType(["group", "supergroup"]).command("help", (ctx) => {
+    const texts = getTexts(ctx.chatId);
+    return ctx.reply(texts.helpMessage);
   });
 }
 
