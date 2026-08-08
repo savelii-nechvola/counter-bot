@@ -2,10 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 
 export const db = new DatabaseSync("db.db");
 
-export type BotMode = "automode" | "manualmode";
+export type BotMode = "adminmode" | "usermode";
 export type BotLanguage = "eng" | "ukr" | "rus";
 
-const DEFAULT_BOT_MODE: BotMode = "manualmode";
+const DEFAULT_BOT_MODE: BotMode = "usermode";
 const DEFAULT_BOT_LANGUAGE: BotLanguage = "eng";
 
 export function transaction<T>(fn: () => T): T {

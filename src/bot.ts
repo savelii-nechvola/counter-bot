@@ -62,7 +62,7 @@ type Texts = {
   noGameTagsForUser: string;
   modeUpdatedTo: string;
   currentModeIs: string;
-  adminOnlyInAutomode: string;
+  adminOnlyInadminmode: string;
   adminOnlyCommand: string;
   tagAlreadyExists: string;
   tagCreated: string;
@@ -127,7 +127,7 @@ function registerCommands(bot: AppBot): void {
   listCommand(bot);
   createTagCommand(bot);
   updateTagCommand(bot);
-  automodeMessageHandler(bot);
+  adminmodeMessageHandler(bot);
 }
 
 function startCommand(bot: AppBot): void {
@@ -708,14 +708,14 @@ function listCommand(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).command("listtag", handleList);
 }
 
-function automodeMessageHandler(bot: AppBot): void {
+function adminmodeMessageHandler(bot: AppBot): void {
   bot.chatType(["group", "supergroup"]).on("message:text", async (ctx) => {
     const text = ctx.message.text.trim();
     if (!text || text.startsWith("/")) {
       return;
     }
 
-    if (getBotModeByChatId(ctx.chatId) !== "automode") {
+    if (getBotModeByChatId(ctx.chatId) !== "adminmode") {
       return;
     }
 
@@ -729,7 +729,7 @@ function automodeMessageHandler(bot: AppBot): void {
 }
 
 function parseBotMode(mode: string): BotMode | null {
-  if (mode === "automode" || mode === "manualmode") {
+  if (mode === "adminmode" || mode === "usermode") {
     return mode;
   }
 
@@ -868,7 +868,7 @@ async function canUseAdminOnlyCommands(ctx: Context, texts: Texts): Promise<bool
     return false;
   }
 
-  if (getBotModeByChatId(chatId) !== "automode") {
+  if (getBotModeByChatId(chatId) !== "adminmode") {
     return true;
   }
 
@@ -878,7 +878,7 @@ async function canUseAdminOnlyCommands(ctx: Context, texts: Texts): Promise<bool
     return true;
   }
 
-  await ctx.reply(texts.adminOnlyInAutomode);
+  await ctx.reply(texts.adminOnlyInadminmode);
   return false;
 }
 
